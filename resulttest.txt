@@ -1,0 +1,18 @@
+OMR SCAN REPORT
+===============
+Student: Unknown
+Date: 2025-06-26 10:17:06
+Score: 2/10 (20.0%)
+
+DETAILED RESULTS:
+-----------------
+Q 1: A   (Correct: B) ✗
+Q 2: C   (Correct: D) ✗
+Q 3: B   (Correct: A) ✗
+Q 4: D   (Correct: C) ✗
+Q 5: E   (Correct: B) ✗
+Q 6: A   (Correct: A) ✓
+Q 7: E   (Correct: C) ✗
+Q 8: D   (Correct: D) ✓
+Q 9: A   (Correct: B) ✗
+Q10: C   (Correct: A) ✗
