@@ -717,10 +717,10 @@ def main():
 
     return 0
 
-if _name_ == "_main_":
+if __name__ == "__main__":
     if len(sys.argv) == 1:
         print("OMR Scanner - Starting GUI Mode")
         print("===============================")
         run_gui()
     else:
-        exit(main())
+        exit(main())
