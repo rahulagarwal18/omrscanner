@@ -22,7 +22,10 @@ MIN_BUBBLE_AREA = 100
 MAX_BUBBLE_AREA = 5000  # Original max area
 QUESTIONS_PER_ROW = 5
 DEBUG_MODE = False
+<<<<<<< HEAD
 
+=======
+>>>>>>> b1a50f7 (your commit message)
 
 def order_points(pts):
     """Order points in clockwise order: top-left, top-right, bottom-right, bottom-left"""
@@ -30,8 +33,13 @@ def order_points(pts):
     s = pts.sum(axis=1)
     diff = np.diff(pts, axis=1)
     rect[0] = pts[np.argmin(s)]  # top-left
+<<<<<<< HEAD
     rect[2] = pts[np.argmax(s)]  # bottom-right
     rect[1] = pts[np.argmin(diff)]  # top-right
+=======
+    rect[1] = pts[np.argmax(s)]  # bottom-right
+    rect[2] = pts[np.argmin(diff)]  # top-right
+>>>>>>> b1a50f7 (your commit message)
     rect[3] = pts[np.argmax(diff)]  # bottom-left
     return rect
 
@@ -113,7 +121,11 @@ def enhance_and_correct_omr_image(image):
 
 
 class OMRScanner:
+<<<<<<< HEAD
     def __init__(self, answer_key: Dict[int, str]):
+=======
+    def _init_(self, answer_key: Dict[int, str]):
+>>>>>>> b1a50f7 (your commit message)
         self.answer_key = answer_key
         self.debug_mode = False
 
@@ -163,7 +175,10 @@ class OMRScanner:
 
     def find_bubbles(self, image: np.ndarray) -> List[Tuple[int, int, int, int]]:
         """Original bubble detection method with dynamic thresholds"""
+<<<<<<< HEAD
         # Find contours
+=======
+>>>>>>> b1a50f7 (your commit message)
         contours, _ = cv2.findContours(
             image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
         )
@@ -180,7 +195,10 @@ class OMRScanner:
         # Calculate dynamic thresholds based on detected areas
         if areas:
             areas.sort()
+<<<<<<< HEAD
             # Use median area as reference
+=======
+>>>>>>> b1a50f7 (your commit message)
             median_area = areas[len(areas) // 2]
             min_area = median_area * 0.5
             max_area = median_area * 2.0
@@ -214,11 +232,18 @@ class OMRScanner:
         print(f"Bubbles found after filtering: {len(bubbles)}")
         return bubbles
 
+<<<<<<< HEAD
     def group_bubbles_by_question(self, bubbles: List[Tuple[int, int, int, int]]) -> Dict[
         int, List[Tuple[int, int, int, int]]]:
         """Original grouping method that worked perfectly"""
         # Sort bubbles by Y coordinate (top to bottom), then X (left to right)
         sorted_bubbles = sorted(bubbles, key=lambda b: (b[1], b[0]))
+=======
+    def group_bubbles_by_question(self, bubbles: List[Tuple[int, int, int, int]]) -> Dict[int, List[Tuple[int, int, int, int]]]:
+        """Original grouping method that worked perfectly"""
+        # Sort bubbles by Y coordinate (top to bottom), then X (left to right)
+        sorted_bubbles = sorted(bubbles, key=lambda b: (b[1], b))
+>>>>>>> b1a50f7 (your commit message)
 
         # Group bubbles by row
         rows = []
@@ -227,6 +252,7 @@ class OMRScanner:
         y_threshold = 30  # Maximum Y difference to be considered same row
 
         for bubble in sorted_bubbles:
+<<<<<<< HEAD
             if last_y == -1 or abs(bubble[1] - last_y) < y_threshold:
                 current_row.append(bubble)
                 last_y = bubble[1]
@@ -238,6 +264,19 @@ class OMRScanner:
 
         if current_row:
             rows.append(sorted(current_row, key=lambda b: b[0]))
+=======
+            if last_y == -1 or abs(bubble[2] - last_y) < y_threshold:
+                current_row.append(bubble)
+                last_y = bubble[2]
+            else:
+                if current_row:
+                    rows.append(sorted(current_row, key=lambda b: b))
+                current_row = [bubble]
+                last_y = bubble[2]
+
+        if current_row:
+            rows.append(sorted(current_row, key=lambda b: b))
+>>>>>>> b1a50f7 (your commit message)
 
         # Assign question numbers
         questions = {}
@@ -292,11 +331,17 @@ class OMRScanner:
 
     def scan_sheet(self, image_path: str) -> Dict:
         """Main scanning function from file path"""
+<<<<<<< HEAD
         # Read image
         image = cv2.imread(image_path)
         if image is None:
             raise ValueError(f"Could not read image: {image_path}")
 
+=======
+        image = cv2.imread(image_path)
+        if image is None:
+            raise ValueError(f"Could not read image: {image_path}")
+>>>>>>> b1a50f7 (your commit message)
         return self.scan_sheet_from_image(image)
 
     def scan_sheet_from_image(self, image: np.ndarray) -> Dict:
@@ -387,7 +432,11 @@ class OMRScanner:
             lines.append(f"\nTotal Score,{results['score']}/{results['total']},{results['percentage']:.1f}%")
             return "\n".join(lines)
 
+<<<<<<< HEAD
         else:  # Default text format
+=======
+        else:  # Default text
+>>>>>>> b1a50f7 (your commit message)
             report = f"""
 OMR SCAN REPORT
 ===============
@@ -397,22 +446,34 @@ Score: {results['score']}/{results['total']} ({results['percentage']:.1f}%)
 Bubbles Detected: {results.get('bubbles_detected', 'N/A')}
 Rows Detected: {results.get('rows_detected', 'N/A')}
 
+<<<<<<< HEAD
+=======
+
+>>>>>>> b1a50f7 (your commit message)
 DETAILED RESULTS:
 -----------------
 """
             for detail in results["details"]:
                 report += f"Q{detail['question']:2d}: {detail['detected']:3s} (Correct: {detail['correct']}) {detail['status']}\n"
+<<<<<<< HEAD
 
             return report
 
 
+=======
+            return report
+
+>>>>>>> b1a50f7 (your commit message)
 def create_sample_answer_key() -> Dict[int, str]:
     """Create a sample answer key"""
     return {
         1: "B", 2: "D", 3: "A", 4: "C", 5: "B",
         6: "A", 7: "C", 8: "D", 9: "B", 10: "A"
     }
+<<<<<<< HEAD
 
+=======
+>>>>>>> b1a50f7 (your commit message)
 
 def load_answer_key_from_file(filepath):
     """Load answer key from JSON or CSV file"""
@@ -420,7 +481,10 @@ def load_answer_key_from_file(filepath):
         with open(filepath, 'r') as f:
             data = json.load(f)
             return {int(k): v for k, v in data.items()}
+<<<<<<< HEAD
 
+=======
+>>>>>>> b1a50f7 (your commit message)
     elif filepath.endswith('.csv'):
         answer_key = {}
         with open(filepath, 'r') as f:
@@ -429,9 +493,10 @@ def load_answer_key_from_file(filepath):
                 parts = line.strip().split(',')
                 if len(parts) >= 2:
                     question_num = int(parts[0])
-                    answer = parts[1].strip().upper()
+                    answer = parts[2].strip().upper()
                     answer_key[question_num] = answer
         return answer_key
+<<<<<<< HEAD
 
     else:
         raise Exception("Unsupported file format. Use JSON or CSV.")
@@ -443,30 +508,59 @@ def run_gui():
         root = tk.Tk()
         root.title("OMR Scanner - Enhanced with IP Camera Support")
         root.geometry("800x700")
+=======
+    else:
+        raise Exception("Unsupported file format. Use JSON or CSV.")
+
+def run_gui():
+    """Enhanced GUI with IP camera + Multiple Sheets support"""
+    try:
+        root = tk.Tk()
+        root.title("OMR Scanner - Enhanced with IP Camera & Multi-Scan")
+        root.geometry("900x740")
+>>>>>>> b1a50f7 (your commit message)
 
         # Variables
         image_path = tk.StringVar()
         student_name = tk.StringVar(value="Unknown")
+<<<<<<< HEAD
         ip_cam_url = tk.StringVar(value="http://192.168.1.100:8080/shot.jpg")
         answer_key = create_sample_answer_key()
 
+=======
+        ip_cam_url = tk.StringVar(value="http://10.150.114.196:8080/shot.jpg")
+        answer_key = create_sample_answer_key()
+
+        # Multiple files state
+        multi_files: List[str] = []
+
+>>>>>>> b1a50f7 (your commit message)
         # Control Frame
         control_frame = tk.Frame(root, padx=10, pady=10)
         control_frame.pack(fill=tk.X)
 
         # Image selection
         tk.Label(control_frame, text="OMR Sheet:", font=("Arial", 10)).grid(row=0, column=0, sticky=tk.W, padx=5)
+<<<<<<< HEAD
         entry_path = tk.Entry(control_frame, textvariable=image_path, width=50)
+=======
+        entry_path = tk.Entry(control_frame, textvariable=image_path, width=60)
+>>>>>>> b1a50f7 (your commit message)
         entry_path.grid(row=0, column=1, padx=5)
 
         def browse_file():
             filename = filedialog.askopenfilename(
                 title="Select OMR Sheet",
+<<<<<<< HEAD
                 filetypes=[("Image files", "*.jpg *.jpeg *.png *.bmp"), ("All files", "*.*")]
+=======
+                filetypes=[("Image files", ".jpg *.jpeg *.png *.bmp"), ("All files", ".*")]
+>>>>>>> b1a50f7 (your commit message)
             )
             if filename:
                 image_path.set(filename)
 
+<<<<<<< HEAD
         tk.Button(control_frame, text="Browse", command=browse_file).grid(row=0, column=2)
 
         # Student name
@@ -493,6 +587,45 @@ def run_gui():
             filename = filedialog.askopenfilename(
                 title="Select Answer Key",
                 filetypes=[("JSON files", "*.json"), ("CSV files", "*.csv"), ("All files", "*.*")]
+=======
+        tk.Button(control_frame, text="Browse", command=browse_file).grid(row=0, column=2, padx=5)
+
+        # Add Multiple Sheets
+        def add_multiple_files():
+            filenames = filedialog.askopenfilenames(
+                title="Select Multiple OMR Sheets",
+                filetypes=[("Image files", ".jpg *.jpeg *.png *.bmp"), ("All files", ".*")]
+            )
+            if filenames:
+                multi_files.clear()
+                multi_files.extend(list(filenames))
+                messagebox.showinfo("Files Selected", f"Selected {len(multi_files)} files.")
+
+        tk.Button(control_frame, text="Add Multiple Sheets", command=add_multiple_files).grid(row=0, column=3, padx=5)
+
+        # Student name
+        tk.Label(control_frame, text="Student Name:", font=("Arial", 10)).grid(row=1, column=0, sticky=tk.W, padx=5, pady=10)
+        tk.Entry(control_frame, textvariable=student_name, width=60).grid(row=1, column=1, pady=10)
+
+        # IP Camera URL
+        tk.Label(control_frame, text="IP Camera URL:", font=("Arial", 10)).grid(row=2, column=0, sticky=tk.W, padx=5)
+        tk.Entry(control_frame, textvariable=ip_cam_url, width=60).grid(row=2, column=1, pady=5, padx=5)
+
+        # Debug mode checkbox
+        debug_var = tk.BooleanVar()
+        tk.Checkbutton(control_frame, text="Debug Mode", variable=debug_var).grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
+
+        # Results area
+        tk.Label(root, text="Results:", font=("Arial", 12, "bold")).pack(anchor=tk.W, padx=10)
+        results_text = scrolledtext.ScrolledText(root, height=28, width=110, font=("Courier", 10))
+        results_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        def load_answer_key_gui():
+            nonlocal answer_key
+            filename = filedialog.askopenfilename(
+                title="Select Answer Key",
+                filetypes=[("JSON files", ".json"), ("CSV files", ".csv"), ("All files", ".")]
+>>>>>>> b1a50f7 (your commit message)
             )
             if filename:
                 try:
@@ -502,11 +635,18 @@ def run_gui():
                 except Exception as e:
                     messagebox.showerror("Error", f"Failed to load answer key:\n{str(e)}")
 
+<<<<<<< HEAD
         def scan():
             if not image_path.get():
                 messagebox.showerror("Error", "Please select an OMR sheet image")
                 return
 
+=======
+        def scan_single():
+            if not image_path.get():
+                messagebox.showerror("Error", "Please select an OMR sheet image")
+                return
+>>>>>>> b1a50f7 (your commit message)
             try:
                 global DEBUG_MODE
                 DEBUG_MODE = debug_var.get()
@@ -522,11 +662,15 @@ def run_gui():
                 results_text.delete(1.0, tk.END)
                 results_text.insert(1.0, report)
 
+<<<<<<< HEAD
                 # Show score in message box
+=======
+>>>>>>> b1a50f7 (your commit message)
                 messagebox.showinfo("Scan Complete",
                                     f"Score: {results['score']}/{results['total']} ({results['percentage']:.1f}%)\n"
                                     f"Bubbles detected: {results.get('bubbles_detected', 'N/A')}\n"
                                     f"Rows detected: {results.get('rows_detected', 'N/A')}")
+<<<<<<< HEAD
 
             except Exception as e:
                 messagebox.showerror("Error", str(e))
@@ -542,11 +686,23 @@ def run_gui():
                 messagebox.showerror("Error", "Please enter IP camera URL")
                 return
 
+=======
+            except Exception as e:
+                messagebox.showerror("Error", str(e))
+                results_text.delete(1.0, tk.END)
+                results_text.insert(1.0, f"Error: {str(e)}\n")
+
+        def scan_multiple_gui():
+            if not multi_files:
+                messagebox.showerror("Error", "Please add multiple OMR sheet images first")
+                return
+>>>>>>> b1a50f7 (your commit message)
             try:
                 global DEBUG_MODE
                 DEBUG_MODE = debug_var.get()
 
                 results_text.delete(1.0, tk.END)
+<<<<<<< HEAD
                 results_text.insert(1.0, "Capturing from IP camera... Please wait.\n")
                 root.update()
 
@@ -604,18 +760,118 @@ def run_gui():
                 if filename:
                     with open(filename, 'w') as f:
                         f.write(results_text.get(1.0, tk.END))
+=======
+                results_text.insert(1.0, "Scanning multiple sheets... Please wait.\n")
+                root.update()
+
+                scanner = OMRScanner(answer_key)
+                combined_report_parts = []
+                total_files = len(multi_files)
+
+                for idx, fpath in enumerate(multi_files, start=1):
+                    results_text.insert(tk.END, f"[{idx}/{total_files}] Scanning: {os.path.basename(fpath)}\n")
+                    root.update()
+
+                    results = scanner.scan_sheet(fpath)
+                    per_file_report = scanner.generate_report(results, student_name.get(), "text")
+                    header = f"\nFILE: {os.path.basename(fpath)}\n" + ("-" * 40) + "\n"
+                    combined_report_parts.append(header + per_file_report)
+
+                combined_report = "\n".join(combined_report_parts)
+                results_text.delete(1.0, tk.END)
+                results_text.insert(1.0, combined_report)
+
+                messagebox.showinfo("Scan Complete", f"Scanned {total_files} files successfully.")
+            except Exception as e:
+                messagebox.showerror("Error", str(e))
+                results_text.delete(1.0, tk.END)
+                results_text.insert(1.0, f"Error: {str(e)}\n")
+
+        def scan_from_camera():
+            url = ip_cam_url.get().strip()
+            if not url:
+                messagebox.showerror("Error", "Please enter IP camera URL")
+                return
+            try:
+                global DEBUG_MODE
+                DEBUG_MODE = debug_var.get()
+
+                results_text.delete(1.0, tk.END)
+                results_text.insert(1.0, "Capturing from IP camera... Please wait.\n")
+                root.update()
+
+                # Capture image from IP camera
+                resp = urllib.request.urlopen(url)
+                image_data = np.asarray(bytearray(resp.read()), dtype=np.uint8)
+                image = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
+
+                if image is None:
+                    raise Exception("Could not decode image from IP camera")
+
+                # Try to enhance and correct the image
+                try:
+                    corrected_image = enhance_and_correct_omr_image(image)
+                except:
+                    corrected_image = image
+
+                if DEBUG_MODE:
+                    cv2.imshow("Captured OMR Sheet", corrected_image)
+                    cv2.waitKey(800)
+                    cv2.destroyAllWindows()
+
+                scanner = OMRScanner(answer_key)
+                results = scanner.scan_sheet_from_image(corrected_image)
+                report = scanner.generate_report(results, student_name.get())
+
+                results_text.delete(1.0, tk.END)
+                results_text.insert(1.0, report)
+
+                messagebox.showinfo("Scan Complete",
+                                    f"Score: {results['score']}/{results['total']} ({results['percentage']:.1f}%)\n"
+                                    f"Bubbles detected: {results.get('bubbles_detected', 'N/A')}\n"
+                                    f"Rows detected: {results.get('rows_detected', 'N/A')}")
+            except Exception as e:
+                messagebox.showerror("Camera Error", f"Error scanning from camera:\n{str(e)}")
+                results_text.delete(1.0, tk.END)
+                results_text.insert(1.0, f"Camera Error: {str(e)}\n")
+
+        # Save button
+        def save_results():
+            content = results_text.get(1.0, tk.END).strip()
+            if content:
+                filename = filedialog.asksaveasfilename(
+                    defaultextension=".txt",
+                    filetypes=[("Text files", ".txt"), ("CSV files", ".csv"), ("JSON files", "*.json"),
+                               ("All files", ".")]
+                )
+                if filename:
+                    with open(filename, 'w') as f:
+                        f.write(content)
+>>>>>>> b1a50f7 (your commit message)
                     messagebox.showinfo("Success", f"Results saved to {filename}")
 
         # Button frame
         button_frame = tk.Frame(root)
         button_frame.pack(pady=10)
 
+<<<<<<< HEAD
         tk.Button(button_frame, text="Load Answer Key", command=load_answer_key,
                   bg="#2196F3", fg="white", font=("Arial", 10), padx=15).pack(side=tk.LEFT, padx=5)
 
         tk.Button(button_frame, text="Scan Image", command=scan,
                   bg="#4CAF50", fg="white", font=("Arial", 12, "bold"), padx=20).pack(side=tk.LEFT, padx=5)
 
+=======
+        tk.Button(button_frame, text="Load Answer Key", command=load_answer_key_gui,
+                  bg="#2196F3", fg="white", font=("Arial", 10), padx=15).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(button_frame, text="Scan Image", command=scan_single,
+                  bg="#4CAF50", fg="white", font=("Arial", 12, "bold"), padx=20).pack(side=tk.LEFT, padx=5)
+
+        tk.Button(button_frame, text="Scan Multiple", command=scan_multiple_gui,
+                  bg="#6A1B9A", fg="white", font=("Arial", 11, "bold"), padx=16).pack(side=tk.LEFT, padx=5)
+
+>>>>>>> b1a50f7 (your commit message)
         tk.Button(button_frame, text="Scan from Camera", command=scan_from_camera,
                   bg="#FF9800", fg="white", font=("Arial", 10), padx=15).pack(side=tk.LEFT, padx=5)
 
@@ -629,11 +885,19 @@ def run_gui():
         print("On Ubuntu/Debian: sudo apt-get install python3-tk")
         print("On Windows: Tkinter should be included with Python")
         return
+<<<<<<< HEAD
 
 
 def main():
     parser = argparse.ArgumentParser(description="OMR Sheet Scanner with IP Camera Support")
     parser.add_argument("image", help="Path to OMR sheet image")
+=======
+
+def main():
+    parser = argparse.ArgumentParser(description="OMR Sheet Scanner with IP Camera & Multi-Scan")
+    parser.add_argument("image", nargs="?", help="Path to OMR sheet image")
+    parser.add_argument("--images", nargs="+", help="Paths to multiple OMR sheet images")  # NEW: batch CLI
+>>>>>>> b1a50f7 (your commit message)
     parser.add_argument("--answer-key", help="Path to answer key JSON/CSV file")
     parser.add_argument("--student", default="Unknown", help="Student name")
     parser.add_argument("--format", choices=["text", "json", "csv"], default="text", help="Output format")
@@ -653,17 +917,53 @@ def main():
         print("Using sample answer key...")
         answer_key = create_sample_answer_key()
 
+<<<<<<< HEAD
     # Create scanner
     scanner = OMRScanner(answer_key)
 
     try:
         # Scan sheet
+=======
+    scanner = OMRScanner(answer_key)
+
+    try:
+        # Batch CLI mode
+        if args.images:
+            combined_outputs = []
+            for fpath in args.images:
+                if not os.path.exists(fpath):
+                    print(f"Warning: File not found, skipping: {fpath}")
+                    continue
+                results = scanner.scan_sheet(fpath)
+                header = f"\nFILE: {os.path.basename(fpath)}\n" + ("-" * 40) + "\n"
+                per_file = scanner.generate_report(results, args.student, args.format)
+                combined_outputs.append(header + per_file)
+
+            report = "\n".join(combined_outputs) if combined_outputs else "No valid files processed."
+            print(report)
+            if args.output:
+                with open(args.output, 'w') as f:
+                    f.write(report)
+                print(f"\nReport saved to: {args.output}")
+            return 0
+
+        # Single-image CLI mode or GUI fallback
+        if not args.image:
+            print("OMR Scanner - Starting GUI Mode")
+            print("===============================")
+            run_gui()
+            return 0
+
+>>>>>>> b1a50f7 (your commit message)
         results = scanner.scan_sheet(args.image)
 
         # Generate report
         report = scanner.generate_report(results, args.student, args.format)
+<<<<<<< HEAD
 
         # Output results
+=======
+>>>>>>> b1a50f7 (your commit message)
         print(report)
 
         if args.output:
@@ -677,9 +977,13 @@ def main():
 
     return 0
 
+<<<<<<< HEAD
 
 if __name__ == "__main__":
     # If no command line arguments, start GUI
+=======
+if __name__ == "__main__":
+>>>>>>> b1a50f7 (your commit message)
     if len(sys.argv) == 1:
         print("OMR Scanner - Starting GUI Mode")
         print("===============================")
