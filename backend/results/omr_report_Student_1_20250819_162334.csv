@@ -1,0 +1,18 @@
+Student Name,Student_1,,
+Registration No,REG_1,,
+Class,Batch_Scan,,
+Date,2025-08-19 16:23:34,,
+Score,2/10,,
+Percentage,20.0%,,
+,,,
+Question,Detected,Correct,Status
+1,A,B,✗
+2,C,D,✗
+3,B,A,✗
+4,D,C,✗
+5,E,B,✗
+6,A,A,✓
+7,E,C,✗
+8,D,D,✓
+9,A,B,✗
+10,C,A,✗

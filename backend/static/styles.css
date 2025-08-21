@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@import url('https://fonts.googleapis.com/css2?family=Audiowide&family=Orbitron:wght@500;700&family=Roboto+Mono&display=swap');
+
+.font-omnibus {
+  font-family: 'Orbitron', 'Audiowide', 'Roboto Mono', sans-serif;
+}
+
+.my-glass-effect {
+  background: rgba(255,255,255,0.05);
+  border-radius: 2rem;
+  border: 1px solid rgba(255,255,255,0.1);
+  backdrop-filter: blur(12px);
+}
