@@ -1,0 +1,23 @@
+OMR SCAN REPORT
+
+Student Information
+Name,Unknown Student
+Registration No,N/A
+Class,N/A
+Date,2025-09-04 13:15:20
+Score,2/10
+Percentage,20.0%
+Bubbles Detected,50
+
+Question Details
+Question,Detected,Correct,Status
+Q1,A,B,✗
+Q2,C,D,✗
+Q3,B,A,✗
+Q4,D,C,✗
+Q5,E,B,✗
+Q6,A,A,✓
+Q7,E,C,✗
+Q8,D,D,✓
+Q9,A,B,✗
+Q10,C,A,✗

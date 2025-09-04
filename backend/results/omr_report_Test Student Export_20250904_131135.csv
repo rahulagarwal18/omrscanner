@@ -1,0 +1,18 @@
+OMR SCAN REPORT
+
+Student Information
+Name,Test Student Export
+Registration No,TEST001
+Class,Test Class
+Date,2025-09-04 13:11:35
+Score,8/10
+Percentage,80.0%
+Bubbles Detected,50
+
+Question Details
+Question,Detected,Correct,Status
+Q1,A,A,✓
+Q2,B,B,✓
+Q3,C,D,✗
+Q4,D,D,✓
+Q5,N/A,A,-
