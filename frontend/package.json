@@ -4,12 +4,13 @@
   "private": true,
   "type": "module",
 "scripts": {
-  "dev": "concurrently \"npm:backend\" \"npm:frontend\"",
+  "dev": "concurrently \"npm run backend\" \"npm run frontend\"",
   "frontend": "vite",
-  "backend": "python ../backend/app.py", 
+  "backend": "python ../backend/app.py",
   "build": "vite build",
   "preview": "vite preview"
 },
+
   "keywords": [],
   "author": "",
   "license": "ISC",
