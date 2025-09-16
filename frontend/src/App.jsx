@@ -53,6 +53,8 @@ export default function App() {
   const [ipCamUrl, setIpCamUrl] = useState("http://192.168.1.100:8080/shot.jpg");
   const [loading, setLoading] = useState(false);
   const [answerKeyLoaded, setAnswerKeyLoaded] = useState(false);
+  const [serverAwake, setServerAwake] = useState(false);
+  const [serverChecking, setServerChecking] = useState(true);
   
   // Student details
   const [studentName, setStudentName] = useState("");
@@ -76,7 +78,10 @@ export default function App() {
   const [sortBy, setSortBy] = useState("timestamp");
   const [sortOrder, setSortOrder] = useState("desc");
 
-  const API_BASE_URL = "http://localhost:5000/api";
+  // UPDATED FOR RENDER: Dynamic API URL based on environment
+  const API_BASE_URL = window.location.hostname === 'localhost' 
+    ? "http://localhost:5000/api"
+    : "/api";  // For production on Render
 
   // Notification system
   const showNotification = (message, type = "info") => {
@@ -97,13 +102,50 @@ export default function App() {
     return () => window.removeEventListener("mousemove", moveCursor);
   }, []);
 
-  // Load all results and answer key on component mount
+  // ADDED FOR RENDER: Check if backend server is awake
   useEffect(() => {
-    fetchAllResults();
-    checkAnswerKey();
+    const checkBackend = async () => {
+      setServerChecking(true);
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000); // 60 second timeout
+        
+        const response = await fetch(`${API_BASE_URL}/health`, {
+          signal: controller.signal
+        });
+        
+        clearTimeout(timeoutId);
+        
+        if (response.ok) {
+          setServerAwake(true);
+          setServerChecking(false);
+          // Only fetch data after server is confirmed awake
+          fetchAllResults();
+          checkAnswerKey();
+        } else {
+          throw new Error('Server not ready');
+        }
+      } catch (err) {
+        if (err.name === 'AbortError') {
+          showNotification("Server is taking longer than usual to start. Please wait...", "warning");
+        } else if (window.location.hostname !== 'localhost') {
+          // Only show wake-up message in production
+          showNotification("🌙 Server is waking up... This usually takes 30-50 seconds on free hosting", "info");
+        }
+        
+        // Retry after 5 seconds
+        setTimeout(() => {
+          checkBackend();
+        }, 5000);
+      }
+    };
+    
+    checkBackend();
   }, []);
 
   const checkAnswerKey = async () => {
+    if (!serverAwake) return;
+    
     try {
       const response = await fetch(`${API_BASE_URL}/get-answer-key`);
       if (response.ok) {
@@ -119,6 +161,8 @@ export default function App() {
   };
 
   const fetchAllResults = async () => {
+    if (!serverAwake) return;
+    
     try {
       const response = await fetch(`${API_BASE_URL}/results`);
       if (response.ok) {
@@ -135,12 +179,19 @@ export default function App() {
     } catch (err) {
       console.error("Failed to fetch results:", err);
       setResults([]);
-      showNotification("Cannot connect to server. Please ensure the backend is running on localhost:5000", "error");
+      if (serverAwake) {
+        showNotification("Cannot fetch results. Please check your connection.", "error");
+      }
     }
   };
 
   // Fetch database statistics
   const fetchDatabaseStats = async () => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    
     try {
       const response = await fetch(`${API_BASE_URL}/database/stats`);
       if (response.ok) {
@@ -154,6 +205,11 @@ export default function App() {
 
   // Export all results to CSV
   const handleExportAllToCSV = async () => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    
     setExportLoading(true);
     try {
       const response = await fetch(`${API_BASE_URL}/database/export/csv`);
@@ -179,6 +235,11 @@ export default function App() {
 
   // Export all results to Excel
   const handleExportAllToExcel = async () => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    
     setExportLoading(true);
     try {
       const response = await fetch(`${API_BASE_URL}/database/export/excel`);
@@ -275,6 +336,11 @@ export default function App() {
 
   // Clear all results
   const handleClearAllResults = async () => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    
     if (!confirm("Are you sure you want to delete ALL results? This cannot be undone.")) return;
     
     try {
@@ -297,6 +363,11 @@ export default function App() {
 
   // Scan Answer Key from Camera
   const handleScanAnswerKeyFromCamera = async () => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    
     if (!ipCamUrl.trim()) {
       showNotification("Please enter IP camera URL", "error");
       return;
@@ -334,6 +405,11 @@ export default function App() {
 
   // Set Sample Answer Key
   const handleSetSampleAnswerKey = async () => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    
     setLoading(true);
     
     try {
@@ -364,7 +440,13 @@ export default function App() {
   };
 
   // Upload Answer Key from File
-  const handleUploadAnswerKey = () => answerKeyRef.current?.click();
+  const handleUploadAnswerKey = () => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    answerKeyRef.current?.click();
+  };
   
   const handleAnswerKeyChange = async (e) => {
     const file = e.target.files?.[0];
@@ -402,7 +484,13 @@ export default function App() {
   };
 
   // Upload Single OMR Sheet
-  const handleUploadOMR = () => fileInputRef.current?.click();
+  const handleUploadOMR = () => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    fileInputRef.current?.click();
+  };
   
   const handleOMRFileChange = async (e) => {
     const file = e.target.files?.[0];
@@ -454,7 +542,13 @@ export default function App() {
   };
 
   // Upload Multiple OMR Sheets
-  const handleUploadMultipleOMR = () => multipleFileInputRef.current?.click();
+  const handleUploadMultipleOMR = () => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    multipleFileInputRef.current?.click();
+  };
   
   const handleMultipleOMRFileChange = async (e) => {
     const files = e.target.files;
@@ -505,6 +599,11 @@ export default function App() {
 
   // Scan from Camera
   const handleCameraScan = async () => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    
     if (!ipCamUrl.trim()) {
       showNotification("Please enter IP camera URL", "error");
       return;
@@ -558,6 +657,11 @@ export default function App() {
 
   // Export Results function
   const handleExportResult = async (resultId) => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    
     // Handle both direct ID and index-based calls
     let actualResultId;
     
@@ -625,6 +729,11 @@ export default function App() {
 
   // Delete result
   const handleDeleteResult = async (resultId) => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    
     if (!confirm("Are you sure you want to delete this result?")) return;
     
     try {
@@ -672,6 +781,22 @@ export default function App() {
         accept=".json,.csv"
         style={{ display: "none" }}
       />
+
+      {/* ADDED: Server Status Banner for Production */}
+      {window.location.hostname !== 'localhost' && !serverAwake && (
+        <div className="bg-yellow-500/20 border-b border-yellow-500/50 p-3 text-center">
+          <div className="flex items-center justify-center space-x-2">
+            {serverChecking ? (
+              <>
+                <RefreshCw className="animate-spin h-4 w-4" />
+                <span className="text-sm">Server is starting up... This is normal for free hosting (30-50 seconds)</span>
+              </>
+            ) : (
+              <span className="text-sm">Connecting to server...</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Notification */}
       {notification && (
@@ -725,11 +850,18 @@ export default function App() {
       ></div>
 
       {/* Loading Overlay */}
-      {(loading || exportLoading) && (
+      {(loading || exportLoading || (serverChecking && !serverAwake)) && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center">
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 text-center">
             <RefreshCw className="animate-spin h-16 w-16 text-purple-500 mx-auto mb-4" />
-            <p className="text-xl">{exportLoading ? 'Exporting Results...' : 'Processing Request...'}</p>
+            <p className="text-xl">
+              {serverChecking && !serverAwake ? 'Connecting to Server...' : 
+               exportLoading ? 'Exporting Results...' : 
+               'Processing Request...'}
+            </p>
+            {serverChecking && !serverAwake && window.location.hostname !== 'localhost' && (
+              <p className="text-sm text-gray-400 mt-2">Free hosting may take 30-50 seconds to wake up</p>
+            )}
           </div>
         </div>
       )}
@@ -747,10 +879,21 @@ export default function App() {
           </h1>
           <div className="text-sm text-gray-400 mb-4">
             v7.0 - Multiple Bubble Detection Fixed
+            {window.location.hostname !== 'localhost' && (
+              <span className="ml-2 text-yellow-400">(Running on Free Hosting)</span>
+            )}
           </div>
           
           {/* Status Indicators */}
           <div className="flex flex-wrap justify-center gap-4 mb-8">
+            <div className={`px-6 py-3 rounded-full text-sm font-medium ${
+              serverAwake ? 'bg-green-500/20 text-green-300 border border-green-500/30' : 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30'
+            }`}>
+              <div className="flex items-center space-x-2">
+                {serverAwake ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
+                <span>Server: {serverAwake ? 'Connected' : 'Connecting...'}</span>
+              </div>
+            </div>
             <div className={`px-6 py-3 rounded-full text-sm font-medium ${
               answerKeyLoaded ? 'bg-green-500/20 text-green-300 border border-green-500/30' : 'bg-red-500/20 text-red-300 border border-red-500/30'
             }`}>
@@ -770,7 +913,7 @@ export default function App() {
           </div>
 
           {/* Quick Action: Load Sample Answer Key if not loaded */}
-          {!answerKeyLoaded && (
+          {!answerKeyLoaded && serverAwake && (
             <div className="mb-4">
               <button
                 onClick={handleSetSampleAnswerKey}
@@ -801,6 +944,7 @@ export default function App() {
                     onChange={(e) => setStudentName(e.target.value)}
                     className="w-full p-4 rounded-lg text-black bg-white/90 backdrop-blur-sm shadow-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                     placeholder="Student Name"
+                    disabled={!serverAwake}
                   />
                 </div>
                 <div className="flex items-center space-x-3">
@@ -811,6 +955,7 @@ export default function App() {
                     onChange={(e) => setRegNo(e.target.value)}
                     className="w-full p-4 rounded-lg text-black bg-white/90 backdrop-blur-sm shadow-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                     placeholder="Registration Number"
+                    disabled={!serverAwake}
                   />
                 </div>
                 <div className="flex items-center space-x-3">
@@ -821,6 +966,7 @@ export default function App() {
                     onChange={(e) => setStudentClass(e.target.value)}
                     className="w-full p-4 rounded-lg text-black bg-white/90 backdrop-blur-sm shadow-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                     placeholder="Class"
+                    disabled={!serverAwake}
                   />
                 </div>
               </div>
@@ -855,6 +1001,7 @@ export default function App() {
                       onChange={(e) => setIpCamUrl(e.target.value)}
                       className="w-full p-4 rounded-lg text-black bg-white/90 backdrop-blur-sm shadow-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
                       placeholder="http://192.168.1.100:8080/shot.jpg"
+                      disabled={!serverAwake}
                     />
                   </div>
                   <div>
@@ -863,6 +1010,7 @@ export default function App() {
                       value={selectedFormat}
                       onChange={(e) => setSelectedFormat(e.target.value)}
                       className="w-full p-4 rounded-lg text-black bg-white/90 backdrop-blur-sm shadow-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
+                      disabled={!serverAwake}
                     >
                       <option value="pdf">PDF Document</option>
                       <option value="xlsx">Excel Spreadsheet</option>
@@ -898,14 +1046,14 @@ export default function App() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.6 }}
         >
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-6">
+          <div className={`grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-6 ${!serverAwake ? 'opacity-50 pointer-events-none' : ''}`}>
             
             {/* Upload Single OMR */}
             <motion.div
-              whileHover={{ scale: 1.05, y: -5 }}
-              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: serverAwake ? 1.05 : 1, y: serverAwake ? -5 : 0 }}
+              whileTap={{ scale: serverAwake ? 0.95 : 1 }}
               onClick={handleUploadOMR}
-              className="cursor-pointer"
+              className={`cursor-pointer ${!serverAwake ? 'cursor-not-allowed' : ''}`}
             >
               <Card className="h-full hover:bg-white/15 transition-all duration-300">
                 <CardContent className="text-center">
@@ -920,10 +1068,10 @@ export default function App() {
 
             {/* Upload Multiple OMR */}
             <motion.div
-              whileHover={{ scale: 1.05, y: -5 }}
-              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: serverAwake ? 1.05 : 1, y: serverAwake ? -5 : 0 }}
+              whileTap={{ scale: serverAwake ? 0.95 : 1 }}
               onClick={handleUploadMultipleOMR}
-              className="cursor-pointer"
+              className={`cursor-pointer ${!serverAwake ? 'cursor-not-allowed' : ''}`}
             >
               <Card className="h-full hover:bg-white/15 transition-all duration-300">
                 <CardContent className="text-center">
@@ -938,10 +1086,10 @@ export default function App() {
 
             {/* Camera Scan */}
             <motion.div
-              whileHover={{ scale: 1.05, y: -5 }}
-              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: serverAwake ? 1.05 : 1, y: serverAwake ? -5 : 0 }}
+              whileTap={{ scale: serverAwake ? 0.95 : 1 }}
               onClick={handleCameraScan}
-              className="cursor-pointer"
+              className={`cursor-pointer ${!serverAwake ? 'cursor-not-allowed' : ''}`}
             >
               <Card className="h-full hover:bg-white/15 transition-all duration-300">
                 <CardContent className="text-center">
@@ -956,10 +1104,10 @@ export default function App() {
 
             {/* View Results */}
             <motion.div
-              whileHover={{ scale: 1.05, y: -5 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setShowResults(!showResults)}
-              className="cursor-pointer"
+              whileHover={{ scale: serverAwake ? 1.05 : 1, y: serverAwake ? -5 : 0 }}
+              whileTap={{ scale: serverAwake ? 0.95 : 1 }}
+              onClick={() => serverAwake && setShowResults(!showResults)}
+              className={`cursor-pointer ${!serverAwake ? 'cursor-not-allowed' : ''}`}
             >
               <Card className="h-full hover:bg-white/15 transition-all duration-300">
                 <CardContent className="text-center">
@@ -973,13 +1121,13 @@ export default function App() {
             </motion.div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-6 mt-6">
+          <div className={`grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-6 mt-6 ${!serverAwake ? 'opacity-50 pointer-events-none' : ''}`}>
             {/* Upload Answer Key */}
             <motion.div
-              whileHover={{ scale: 1.05, y: -5 }}
-              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: serverAwake ? 1.05 : 1, y: serverAwake ? -5 : 0 }}
+              whileTap={{ scale: serverAwake ? 0.95 : 1 }}
               onClick={handleUploadAnswerKey}
-              className="cursor-pointer"
+              className={`cursor-pointer ${!serverAwake ? 'cursor-not-allowed' : ''}`}
             >
               <Card className="h-full hover:bg-white/15 transition-all duration-300">
                 <CardContent className="text-center">
@@ -994,10 +1142,10 @@ export default function App() {
 
             {/* Scan Answer Key */}
             <motion.div
-              whileHover={{ scale: 1.05, y: -5 }}
-              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: serverAwake ? 1.05 : 1, y: serverAwake ? -5 : 0 }}
+              whileTap={{ scale: serverAwake ? 0.95 : 1 }}
               onClick={handleScanAnswerKeyFromCamera}
-              className="cursor-pointer"
+              className={`cursor-pointer ${!serverAwake ? 'cursor-not-allowed' : ''}`}
             >
               <Card className="h-full hover:bg-white/15 transition-all duration-300">
                 <CardContent className="text-center">
@@ -1030,10 +1178,10 @@ export default function App() {
 
             {/* Clear All */}
             <motion.div
-              whileHover={{ scale: 1.05, y: -5 }}
-              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: serverAwake ? 1.05 : 1, y: serverAwake ? -5 : 0 }}
+              whileTap={{ scale: serverAwake ? 0.95 : 1 }}
               onClick={handleClearAllResults}
-              className="cursor-pointer"
+              className={`cursor-pointer ${!serverAwake ? 'cursor-not-allowed' : ''}`}
             >
               <Card className="h-full hover:bg-white/15 transition-all duration-300">
                 <CardContent className="text-center">
@@ -1048,16 +1196,18 @@ export default function App() {
           </div>
 
           {/* New row for Database Viewer */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 mt-6 max-w-2xl mx-auto">
+          <div className={`grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 mt-6 max-w-2xl mx-auto ${!serverAwake ? 'opacity-50 pointer-events-none' : ''}`}>
             {/* Database Viewer */}
             <motion.div
-              whileHover={{ scale: 1.05, y: -5 }}
-              whileTap={{ scale: 0.95 }}
+              whileHover={{ scale: serverAwake ? 1.05 : 1, y: serverAwake ? -5 : 0 }}
+              whileTap={{ scale: serverAwake ? 0.95 : 1 }}
               onClick={() => {
-                setShowDatabase(!showDatabase);
-                if (!showDatabase) fetchDatabaseStats();
+                if (serverAwake) {
+                  setShowDatabase(!showDatabase);
+                  if (!showDatabase) fetchDatabaseStats();
+                }
               }}
-              className="cursor-pointer"
+              className={`cursor-pointer ${!serverAwake ? 'cursor-not-allowed' : ''}`}
             >
               <Card className="h-full hover:bg-white/15 transition-all duration-300 bg-indigo-500/10">
                 <CardContent className="text-center">
@@ -1072,9 +1222,9 @@ export default function App() {
 
             {/* Export All Data */}
             <motion.div
-              whileHover={{ scale: 1.05, y: -5 }}
-              whileTap={{ scale: 0.95 }}
-              className="cursor-pointer"
+              whileHover={{ scale: serverAwake ? 1.05 : 1, y: serverAwake ? -5 : 0 }}
+              whileTap={{ scale: serverAwake ? 0.95 : 1 }}
+              className={`cursor-pointer ${!serverAwake ? 'cursor-not-allowed' : ''}`}
             >
               <Card className="h-full hover:bg-white/15 transition-all duration-300 bg-emerald-500/10">
                 <CardContent className="text-center">
@@ -1086,18 +1236,20 @@ export default function App() {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleExportAllToCSV();
+                        if (serverAwake) handleExportAllToCSV();
                       }}
                       className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-3 py-1 rounded text-xs"
+                      disabled={!serverAwake}
                     >
                       CSV
                     </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleExportAllToExcel();
+                        if (serverAwake) handleExportAllToExcel();
                       }}
                       className="bg-green-500/20 hover:bg-green-500/30 text-green-300 px-3 py-1 rounded text-xs"
+                      disabled={!serverAwake}
                     >
                       Excel
                     </button>
@@ -1300,30 +1452,30 @@ export default function App() {
                         )}
                       </div>
 
-                      {/* Export Actions */}
-                      <div className="flex flex-wrap gap-4 mt-6 justify-center">
-                        <button
-                          onClick={handleExportAllToCSV}
-                          className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
-                        >
-                          <Download size={20} />
-                          <span>Export All to CSV</span>
-                        </button>
-                        <button
-                          onClick={handleExportAllToExcel}
-                          className="bg-green-500/20 hover:bg-green-500/30 text-green-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
-                        >
-                          <FileSpreadsheet size={20} />
-                          <span>Export All to Excel</span>
-                        </button>
-                        <button
-                          onClick={() => window.print()}
-                          className="bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
-                        >
-                          <FileText size={20} />
-                          <span>Print Report</span>
-                        </button>
-                      </div>
+                     {/* Export Actions */}
+<div className="flex flex-wrap gap-4 mt-6 justify-center">
+  <button
+    onClick={handleExportAllToCSV}
+    className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
+  >
+    <Download size={20} />
+    <span>Export All to CSV</span>
+  </button>
+  <button
+    onClick={handleExportAllToExcel}
+    className="bg-green-500/20 hover:bg-green-500/30 text-green-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
+  >
+    <FileSpreadsheet size={20} />
+    <span>Export All to Excel</span>
+  </button>
+  <button
+    onClick={() => window.print()}
+    className="bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
+  >
+    <FileText size={20} />
+    <span>Print Report</span>
+  </button>
+</div>
                     </>
                   );
                 })()}
@@ -1378,7 +1530,7 @@ export default function App() {
                         whileHover={{ scale: 1.02 }}
                         className="bg-white/5 rounded-lg p-6 border border-white/10 hover:border-white/20 transition-all duration-300 relative"
                       >
-                        {/* Multiple answers warning badge - FIXED: removed absolute positioning */}
+                        {/* Multiple answers warning badge */}
                         {result.multiple_answers > 0 && (
                           <div className="inline-block bg-yellow-500 text-black rounded-full px-2 py-1 text-xs font-bold mb-2">
                             {result.multiple_answers} Multiple
@@ -1448,7 +1600,7 @@ export default function App() {
                         )}
 
                         <div className="flex flex-col sm:flex-row gap-2">
-                                                    <button
+                          <button
                             onClick={() => handleExportResult(result.id)}
                             disabled={exportLoading}
                             className="flex-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 flex items-center justify-center space-x-1"
@@ -1685,7 +1837,7 @@ export default function App() {
                         showNotification("No result ID found", "error");
                       }
                     }}
-                    disabled={exportLoading}
+                    disabled={exportLoading || !serverAwake}
                     className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-8 py-3 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center space-x-2"
                   >
                     <Download size={20} />
@@ -1708,12 +1860,21 @@ export default function App() {
         <div className="text-center text-gray-400 text-sm mt-12">
           <p className="mb-2">Enhanced OMR Scanner v7.0 - Multiple Bubble Detection Fixed</p>
           <p className="flex items-center justify-center space-x-2">
-            {answerKeyLoaded ? (
-              <><CheckCircle size={16} className="text-green-400" /><span>Ready to scan</span></>
+            {serverAwake ? (
+              answerKeyLoaded ? (
+                <><CheckCircle size={16} className="text-green-400" /><span>Ready to scan</span></>
+              ) : (
+                <><XCircle size={16} className="text-red-400" /><span>Load answer key to begin</span></>
+              )
             ) : (
-              <><XCircle size={16} className="text-red-400" /><span>Load answer key to begin</span></>
+              <><AlertCircle size={16} className="text-yellow-400" /><span>Connecting to server...</span></>
             )}
           </p>
+          {window.location.hostname !== 'localhost' && (
+            <p className="mt-2 text-xs text-gray-500">
+              Hosted on free tier - Server may take 30-50 seconds to wake up after inactivity
+            </p>
+          )}
         </div>
       </div>
     </div>
