@@ -66,6 +66,43 @@ app.wsgi_app = SharedDataMiddleware(app.wsgi_app, {
     '/downloads': app.config['RESULTS_FOLDER']
 })
 
+# FRONTEND SERVING ROUTES - Added to serve React app
+@app.route('/')
+def serve_frontend():
+    """Serve the React frontend"""
+    frontend_path = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
+    if os.path.exists(os.path.join(frontend_path, 'index.html')):
+        return send_from_directory(frontend_path, 'index.html')
+    else:
+        # Fallback to API response if frontend not built
+        return jsonify({
+            "message": "Enhanced OMR Scanner API - Backend is running",
+            "status": "Frontend not found. Please ensure frontend is built in frontend/dist.",
+            "api_docs": "/api/health for API status"
+        })
+
+@app.route('/<path:path>')
+def serve_static(path):
+    """Serve static files from React build"""
+    # Don't serve API routes as static files
+    if path.startswith('api/'):
+        # Let Flask handle API routes normally - this will fall through to API handlers
+        pass
+    else:
+        frontend_path = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
+        
+        # Try to serve the requested file
+        file_path = os.path.join(frontend_path, path)
+        if os.path.exists(file_path) and os.path.isfile(file_path):
+            return send_from_directory(frontend_path, path)
+        
+        # For React Router - return index.html for client-side routing
+        index_path = os.path.join(frontend_path, 'index.html')
+        if os.path.exists(index_path):
+            return send_from_directory(frontend_path, 'index.html')
+        else:
+            return jsonify({"error": "Frontend not built"}), 404
+
 # Database setup for persistent storage
 def init_database():
     """Initialize SQLite database for storing results"""
@@ -958,24 +995,6 @@ def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # API Routes
-@app.route('/')
-def home():
-    return jsonify({
-        "message": "Enhanced OMR Scanner API - DATABASE EXPORT FIXED",
-        "version": "8.0.0-DATABASE-EXPORT-FIXED",
-        "status": "running",
-        "features": [
-            "FIXED: Database export functionality working",
-            "FIXED: Multiple bubble detection working correctly",
-            "Database viewer with filtering and sorting",
-            "Bulk delete and individual delete options",
-            "CSV and Excel export for entire database",
-            "Dynamic threshold calculation for better accuracy",
-            "Comprehensive answer statistics including multiple marks",
-            "Real-time notifications"
-        ]
-    })
-
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -1434,7 +1453,7 @@ def scan_single_omr():
         
         return jsonify({
             "message": "OMR sheet scanned and saved successfully",
-            "id": student_id,  # Added ID field for frontend
+            "id": student_id,
             "student_id": student_id,
             "student_name": student_name,
             "reg_no": reg_no,
@@ -1687,7 +1706,7 @@ def scan_from_ip_camera():
 
         return jsonify({
             "message": "OMR sheet scanned from camera and saved successfully",
-            "id": student_id,  # Added ID field
+            "id": student_id,
             "student_id": student_id,
             "student_name": student_name,
             "reg_no": reg_no,
@@ -1949,31 +1968,21 @@ def request_entity_too_large(error):
     return jsonify({"error": "File too large. Maximum size is 16MB"}), 413
 
 if __name__ == '__main__':
-    print("Starting Enhanced OMR Scanner API v8.0.0 - DATABASE EXPORT FIXED")
+    print("Starting Enhanced OMR Scanner API v8.0.0")
     print("=" * 80)
-    print("ALL FIXES APPLIED:")
-    print("   ✅ DATABASE EXPORT NOW WORKING:")
-    print("      - CSV export using send_file for proper download")
-    print("      - Excel export with multiple sheets")
-    print("      - Proper file serving with correct MIME types")
-    print("      - Database statistics endpoint")
-    print("   ✅ MULTIPLE BUBBLE DETECTION WORKING")
-    print("   ✅ DELETE FUNCTIONALITY:")
-    print("      - Individual record deletion")
-    print("      - Bulk deletion support")
-    print("      - Clear all records")
-    print("   ✅ DATABASE VIEWER IN UI:")
-    print("      - Filter by class and date")
-    print("      - Sort by multiple fields")
-    print("      - Export individual or all records")
-    print("      - View detailed statistics")
+    print("Features:")
+    print("   ✅ Frontend serving routes added")
+    print("   ✅ Database export functionality")
+    print("   ✅ Multiple bubble detection")
+    print("   ✅ Delete functionality")
+    print("   ✅ Database viewer support")
     print("")
     print("Available endpoints:")
-    print("- GET  /api/database/stats (get statistics)")
+    print("- GET  / (serves React frontend)")
+    print("- GET  /api/health (API health check)")
+    print("- GET  /api/database/stats (database statistics)")
     print("- GET  /api/database/export/csv (export all to CSV)")
     print("- GET  /api/database/export/excel (export all to Excel)")
-    print("- POST /api/database/backup (create backup)")
-    print("- POST /api/database/delete-multiple (bulk delete)")
     print("")
     print(f"Server starting on http://localhost:5000")
     print("=" * 80)
@@ -1983,4 +1992,8 @@ if __name__ == '__main__':
             os.makedirs(folder, exist_ok=True)
             print(f"Created directory: {folder}")
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Use PORT from environment variable (Render provides this)
+    port = int(os.environ.get('PORT', 5000))
+    
+    # Set debug=False for production
+    app.run(debug=False, host='0.0.0.0', port=port)
