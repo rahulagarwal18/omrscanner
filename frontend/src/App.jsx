@@ -20,7 +20,9 @@ import {
   AlertCircle,
   RefreshCw,
   X,
-  AlertTriangle
+  AlertTriangle,
+  Database,
+  Filter
 } from "lucide-react";
 
 // Simple Card components with better spacing
@@ -64,7 +66,15 @@ export default function App() {
   // UI States
   const [showResults, setShowResults] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showDatabase, setShowDatabase] = useState(false);
   const [notification, setNotification] = useState(null);
+  
+  // Database view states
+  const [databaseStats, setDatabaseStats] = useState(null);
+  const [filterClass, setFilterClass] = useState("");
+  const [filterDate, setFilterDate] = useState("");
+  const [sortBy, setSortBy] = useState("timestamp");
+  const [sortOrder, setSortOrder] = useState("desc");
 
   const API_BASE_URL = "http://localhost:5000/api";
 
@@ -126,6 +136,162 @@ export default function App() {
       console.error("Failed to fetch results:", err);
       setResults([]);
       showNotification("Cannot connect to server. Please ensure the backend is running on localhost:5000", "error");
+    }
+  };
+
+  // Fetch database statistics
+  const fetchDatabaseStats = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/database/stats`);
+      if (response.ok) {
+        const data = await response.json();
+        setDatabaseStats(data);
+      }
+    } catch (err) {
+      console.error("Failed to fetch database stats:", err);
+    }
+  };
+
+  // Export all results to CSV
+  const handleExportAllToCSV = async () => {
+    setExportLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/database/export/csv`);
+      if (!response.ok) throw new Error('Export failed');
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `all_results_${new Date().toISOString().split('T')[0]}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      showNotification("All results exported to CSV successfully!", "success");
+    } catch (err) {
+      showNotification("Failed to export database", "error");
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  // Export all results to Excel
+  const handleExportAllToExcel = async () => {
+    setExportLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/database/export/excel`);
+      if (!response.ok) throw new Error('Export failed');
+      
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `all_results_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      showNotification("All results exported to Excel successfully!", "success");
+    } catch (err) {
+      showNotification("Failed to export database", "error");
+    } finally {
+      setExportLoading(false);
+    }
+  };
+
+  // Get filtered results
+  const getFilteredResults = () => {
+    let filtered = [...results];
+    
+    // Filter by class
+    if (filterClass) {
+      filtered = filtered.filter(r => 
+        r.class && r.class.toLowerCase().includes(filterClass.toLowerCase())
+      );
+    }
+    
+    // Filter by date
+    if (filterDate) {
+      filtered = filtered.filter(r => {
+        const resultDate = new Date(r.timestamp).toDateString();
+        const filterDateObj = new Date(filterDate).toDateString();
+        return resultDate === filterDateObj;
+      });
+    }
+    
+    // Sort results
+    filtered.sort((a, b) => {
+      let aVal = a[sortBy];
+      let bVal = b[sortBy];
+      
+      if (sortBy === 'timestamp') {
+        aVal = new Date(aVal);
+        bVal = new Date(bVal);
+      } else if (sortBy === 'percentage' || sortBy === 'score') {
+        aVal = parseFloat(aVal) || 0;
+        bVal = parseFloat(bVal) || 0;
+      }
+      
+      if (sortOrder === 'asc') {
+        return aVal > bVal ? 1 : -1;
+      } else {
+        return aVal < bVal ? 1 : -1;
+      }
+    });
+    
+    return filtered;
+  };
+
+  // Calculate statistics
+  const calculateStats = (resultsList) => {
+    if (!resultsList || resultsList.length === 0) return null;
+    
+    const avgScore = resultsList.reduce((sum, r) => sum + (r.percentage || 0), 0) / resultsList.length;
+    const highestScore = Math.max(...resultsList.map(r => r.percentage || 0));
+    const lowestScore = Math.min(...resultsList.map(r => r.percentage || 0));
+    const totalMultiple = resultsList.reduce((sum, r) => sum + (r.multiple_answers || 0), 0);
+    
+    const classStats = {};
+    resultsList.forEach(r => {
+      const cls = r.class || 'N/A';
+      if (!classStats[cls]) {
+        classStats[cls] = { count: 0, totalScore: 0 };
+      }
+      classStats[cls].count++;
+      classStats[cls].totalScore += r.percentage || 0;
+    });
+    
+    return {
+      avgScore,
+      highestScore,
+      lowestScore,
+      totalMultiple,
+      classStats
+    };
+  };
+
+  // Clear all results
+  const handleClearAllResults = async () => {
+    if (!confirm("Are you sure you want to delete ALL results? This cannot be undone.")) return;
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/results`, {
+        method: 'DELETE'
+      });
+      
+      if (response.ok) {
+        setResults([]);
+        setCurrentResult(null);
+        showNotification("All results cleared successfully!", "success");
+      } else {
+        throw new Error('Failed to clear results');
+      }
+    } catch (err) {
+      console.error("Clear all error:", err);
+      showNotification(err.message, "error");
     }
   };
 
@@ -477,28 +643,6 @@ export default function App() {
       }
     } catch (err) {
       console.error("Delete error:", err);
-      showNotification(err.message, "error");
-    }
-  };
-
-  // Clear all results
-  const handleClearAllResults = async () => {
-    if (!confirm("Are you sure you want to delete ALL results? This cannot be undone.")) return;
-    
-    try {
-      const response = await fetch(`${API_BASE_URL}/results`, {
-        method: 'DELETE'
-      });
-      
-      if (response.ok) {
-        setResults([]);
-        setCurrentResult(null);
-        showNotification("All results cleared successfully!", "success");
-      } else {
-        throw new Error('Failed to clear results');
-      }
-    } catch (err) {
-      console.error("Clear all error:", err);
       showNotification(err.message, "error");
     }
   };
@@ -902,7 +1046,291 @@ export default function App() {
               </Card>
             </motion.div>
           </div>
+
+          {/* New row for Database Viewer */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-6 mt-6 max-w-2xl mx-auto">
+            {/* Database Viewer */}
+            <motion.div
+              whileHover={{ scale: 1.05, y: -5 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={() => {
+                setShowDatabase(!showDatabase);
+                if (!showDatabase) fetchDatabaseStats();
+              }}
+              className="cursor-pointer"
+            >
+              <Card className="h-full hover:bg-white/15 transition-all duration-300 bg-indigo-500/10">
+                <CardContent className="text-center">
+                  <div className="flex justify-center mb-4 text-indigo-400">
+                    <Database size={32} />
+                  </div>
+                  <h3 className="text-lg font-bold mb-2">Database Viewer</h3>
+                  <p className="text-sm text-gray-300">View all historical data</p>
+                </CardContent>
+              </Card>
+            </motion.div>
+
+            {/* Export All Data */}
+            <motion.div
+              whileHover={{ scale: 1.05, y: -5 }}
+              whileTap={{ scale: 0.95 }}
+              className="cursor-pointer"
+            >
+              <Card className="h-full hover:bg-white/15 transition-all duration-300 bg-emerald-500/10">
+                <CardContent className="text-center">
+                  <div className="flex justify-center mb-4 text-emerald-400">
+                    <Download size={32} />
+                  </div>
+                  <h3 className="text-lg font-bold mb-2">Export Database</h3>
+                  <div className="flex gap-2 justify-center mt-2">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleExportAllToCSV();
+                      }}
+                      className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-3 py-1 rounded text-xs"
+                    >
+                      CSV
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleExportAllToExcel();
+                      }}
+                      className="bg-green-500/20 hover:bg-green-500/30 text-green-300 px-3 py-1 rounded text-xs"
+                    >
+                      Excel
+                    </button>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          </div>
         </motion.div>
+
+        {/* Database Viewer Section */}
+        {showDatabase && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mb-12"
+          >
+            <Card className="max-w-7xl mx-auto">
+              <CardContent>
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
+                  <div>
+                    <h3 className="text-2xl font-bold">Database Viewer</h3>
+                    <p className="text-gray-400">Complete historical data of all scanned sheets</p>
+                  </div>
+                  <button
+                    onClick={() => setShowDatabase(false)}
+                    className="text-gray-400 hover:text-white"
+                  >
+                    <X size={24} />
+                  </button>
+                </div>
+
+                {/* Statistics Cards */}
+                {(() => {
+                  const filteredResults = getFilteredResults();
+                  const stats = calculateStats(filteredResults);
+                  
+                  return (
+                    <>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                        <div className="bg-blue-500/20 rounded-lg p-4 text-center">
+                          <div className="text-3xl font-bold text-blue-400">{filteredResults.length}</div>
+                          <div className="text-sm text-blue-300">Total Sheets</div>
+                        </div>
+                        <div className="bg-green-500/20 rounded-lg p-4 text-center">
+                          <div className="text-3xl font-bold text-green-400">
+                            {stats ? stats.avgScore.toFixed(1) : 0}%
+                          </div>
+                          <div className="text-sm text-green-300">Average Score</div>
+                        </div>
+                        <div className="bg-purple-500/20 rounded-lg p-4 text-center">
+                          <div className="text-3xl font-bold text-purple-400">
+                            {stats ? stats.highestScore.toFixed(1) : 0}%
+                          </div>
+                          <div className="text-sm text-purple-300">Highest Score</div>
+                        </div>
+                        <div className="bg-orange-500/20 rounded-lg p-4 text-center">
+                          <div className="text-3xl font-bold text-orange-400">
+                            {stats ? stats.totalMultiple : 0}
+                          </div>
+                          <div className="text-sm text-orange-300">Multiple Marks</div>
+                        </div>
+                      </div>
+
+                      {/* Filters and Controls */}
+                      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+                        <input
+                          type="text"
+                          value={filterClass}
+                          onChange={(e) => setFilterClass(e.target.value)}
+                          className="p-3 rounded-lg text-black bg-white/90 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                          placeholder="Filter by class..."
+                        />
+                        <input
+                          type="date"
+                          value={filterDate}
+                          onChange={(e) => setFilterDate(e.target.value)}
+                          className="p-3 rounded-lg text-black bg-white/90 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        />
+                        <select
+                          value={sortBy}
+                          onChange={(e) => setSortBy(e.target.value)}
+                          className="p-3 rounded-lg text-black bg-white/90 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        >
+                          <option value="timestamp">Sort by Date</option>
+                          <option value="student_name">Sort by Name</option>
+                          <option value="percentage">Sort by Score</option>
+                          <option value="class">Sort by Class</option>
+                        </select>
+                        <select
+                          value={sortOrder}
+                          onChange={(e) => setSortOrder(e.target.value)}
+                          className="p-3 rounded-lg text-black bg-white/90 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                        >
+                          <option value="desc">Descending</option>
+                          <option value="asc">Ascending</option>
+                        </select>
+                      </div>
+
+                      {/* Class-wise Statistics */}
+                      {stats && stats.classStats && Object.keys(stats.classStats).length > 0 && (
+                        <div className="mb-6">
+                          <h4 className="text-lg font-semibold mb-3">Class-wise Performance</h4>
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            {Object.entries(stats.classStats).map(([cls, data]) => (
+                              <div key={cls} className="bg-white/5 rounded-lg p-3">
+                                <div className="font-medium">{cls}</div>
+                                <div className="text-sm text-gray-400">
+                                  {data.count} students • Avg: {(data.totalScore / data.count).toFixed(1)}%
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Results Table */}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead className="bg-white/10">
+                            <tr>
+                              <th className="p-3 text-left">ID</th>
+                              <th className="p-3 text-left">Name</th>
+                              <th className="p-3 text-left">Reg No</th>
+                              <th className="p-3 text-left">Class</th>
+                              <th className="p-3 text-center">Score</th>
+                              <th className="p-3 text-center">Percentage</th>
+                              <th className="p-3 text-center">Multiple</th>
+                              <th className="p-3 text-left">Date</th>
+                              <th className="p-3 text-center">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {filteredResults.slice(0, 50).map((result) => (
+                              <tr key={result.id} className="border-b border-white/10 hover:bg-white/5">
+                                <td className="p-3">{result.id}</td>
+                                <td className="p-3 font-medium">{result.student_name || 'N/A'}</td>
+                                <td className="p-3">{result.reg_no || 'N/A'}</td>
+                                <td className="p-3">{result.class || 'N/A'}</td>
+                                <td className="p-3 text-center">
+                                  {result.score}/{result.total_questions || result.total}
+                                </td>
+                                <td className="p-3 text-center">
+                                  <span className={`px-2 py-1 rounded text-xs ${
+                                    result.percentage >= 80 ? 'bg-green-500/20 text-green-300' :
+                                    result.percentage >= 60 ? 'bg-yellow-500/20 text-yellow-300' :
+                                    'bg-red-500/20 text-red-300'
+                                  }`}>
+                                    {(result.percentage || 0).toFixed(1)}%
+                                  </span>
+                                </td>
+                                <td className="p-3 text-center">
+                                  {result.multiple_answers > 0 && (
+                                    <span className="bg-orange-500/20 text-orange-300 px-2 py-1 rounded text-xs">
+                                      {result.multiple_answers}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-3 text-xs">
+                                  {new Date(result.timestamp).toLocaleDateString()}
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex gap-2 justify-center">
+                                    <button
+                                      onClick={() => {
+                                        setCurrentResult(result);
+                                        setShowDatabase(false);
+                                      }}
+                                      className="text-blue-400 hover:text-blue-300"
+                                    >
+                                      <Eye size={16} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleExportResult(result.id)}
+                                      className="text-green-400 hover:text-green-300"
+                                    >
+                                      <Download size={16} />
+                                    </button>
+                                    <button
+                                      onClick={() => handleDeleteResult(result.id)}
+                                      className="text-red-400 hover:text-red-300"
+                                    >
+                                      <Trash2 size={16} />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        {filteredResults.length > 50 && (
+                          <div className="text-center py-4 text-gray-400">
+                            Showing first 50 of {filteredResults.length} results
+                          </div>
+                        )}
+                        {filteredResults.length === 0 && (
+                          <div className="text-center py-8 text-gray-400">
+                            No results found. Try adjusting your filters or scan some OMR sheets first.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Export Actions */}
+                      <div className="flex flex-wrap gap-4 mt-6 justify-center">
+                        <button
+                          onClick={handleExportAllToCSV}
+                          className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
+                        >
+                          <Download size={20} />
+                          <span>Export All to CSV</span>
+                        </button>
+                        <button
+                          onClick={handleExportAllToExcel}
+                          className="bg-green-500/20 hover:bg-green-500/30 text-green-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
+                        >
+                          <FileSpreadsheet size={20} />
+                          <span>Export All to Excel</span>
+                        </button>
+                        <button
+                          onClick={() => window.print()}
+                          className="bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
+                        >
+                          <FileText size={20} />
+                          <span>Print Report</span>
+                        </button>
+                      </div>
+                    </>
+                  );
+                })()}
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
 
         {/* Results Display */}
         {showResults && (
@@ -948,12 +1376,12 @@ export default function App() {
                       <motion.div
                         key={result.id}
                         whileHover={{ scale: 1.02 }}
-                        className="bg-white/5 rounded-lg p-6 border border-white/10 hover:border-white/20 transition-all duration-300"
+                        className="bg-white/5 rounded-lg p-6 border border-white/10 hover:border-white/20 transition-all duration-300 relative"
                       >
-                        {/* Multiple answers warning badge */}
+                        {/* Multiple answers warning badge - FIXED: removed absolute positioning */}
                         {result.multiple_answers > 0 && (
-                          <div className="absolute -top-2 -right-2 bg-yellow-500 text-black rounded-full w-8 h-8 flex items-center justify-center font-bold text-sm">
-                            {result.multiple_answers}M
+                          <div className="inline-block bg-yellow-500 text-black rounded-full px-2 py-1 text-xs font-bold mb-2">
+                            {result.multiple_answers} Multiple
                           </div>
                         )}
                         
@@ -1020,7 +1448,7 @@ export default function App() {
                         )}
 
                         <div className="flex flex-col sm:flex-row gap-2">
-                          <button
+                                                    <button
                             onClick={() => handleExportResult(result.id)}
                             disabled={exportLoading}
                             className="flex-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 flex items-center justify-center space-x-1"

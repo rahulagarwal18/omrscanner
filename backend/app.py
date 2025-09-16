@@ -1,5 +1,5 @@
 # type: ignore
-from flask import Flask, request, jsonify, send_from_directory, Response
+from flask import Flask, request, jsonify, send_from_directory, Response, send_file
 from flask_cors import CORS
 import cv2
 import numpy as np
@@ -115,7 +115,7 @@ def calculate_answer_statistics(details):
         
         if status == '✓':
             correct_answers += 1
-        elif detected == 'MULTIPLE':
+        elif detected == 'MULTIPLE' or status == 'M':
             multiple_answers += 1
         elif detected == 'N/A' or detected == 'BLANK' or status == '-':
             blank_answers += 1
@@ -957,32 +957,32 @@ def load_answer_key_from_file_content(content: str, filename: str) -> Dict[int, 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
-# API Routes (keeping existing routes, responses adjusted for multiple detection)
+# API Routes
 @app.route('/')
 def home():
     return jsonify({
-        "message": "Enhanced OMR Scanner API - MULTIPLE DETECTION FIXED",
-        "version": "7.0.0-MULTIPLE-DETECTION",
+        "message": "Enhanced OMR Scanner API - DATABASE EXPORT FIXED",
+        "version": "8.0.0-DATABASE-EXPORT-FIXED",
         "status": "running",
         "features": [
-            "FIXED: Multiple bubble detection now working correctly",
+            "FIXED: Database export functionality working",
+            "FIXED: Multiple bubble detection working correctly",
+            "Database viewer with filtering and sorting",
+            "Bulk delete and individual delete options",
+            "CSV and Excel export for entire database",
             "Dynamic threshold calculation for better accuracy",
             "Comprehensive answer statistics including multiple marks",
-            "Enhanced UI with multiple answer display",
-            "All export formats support multiple answer reporting",
-            "Database persistence",
             "Real-time notifications"
         ]
     })
 
-# Keep all existing API routes unchanged
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
     return jsonify({
         "status": "success",
-        "message": "Enhanced OMR Scanner API with Multiple Detection",
-        "version": "7.0.0-MULTIPLE-DETECTION",
+        "message": "Enhanced OMR Scanner API with Database Export Fixed",
+        "version": "8.0.0-DATABASE-EXPORT-FIXED",
         "timestamp": datetime.now().isoformat(),
         "directories": {
             "uploads": os.path.exists(UPLOAD_FOLDER),
@@ -995,9 +995,291 @@ def health_check():
         }
     })
 
-# All other routes remain the same...
-# [Keep all existing routes from lines 724 to end of file unchanged]
+# Database viewer API endpoints - FIXED AND COMPLETE
+@app.route('/api/database/stats', methods=['GET'])
+def get_database_stats():
+    """Get database statistics"""
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        
+        # Total students
+        cursor.execute('SELECT COUNT(*) FROM students')
+        total_students = cursor.fetchone()[0]
+        
+        # Average score
+        cursor.execute('SELECT AVG(percentage) FROM students')
+        avg_score = cursor.fetchone()[0] or 0
+        
+        # Highest and lowest scores
+        cursor.execute('SELECT MAX(percentage), MIN(percentage) FROM students')
+        scores = cursor.fetchone()
+        highest_score = scores[0] or 0
+        lowest_score = scores[1] or 0
+        
+        # Total answer keys
+        cursor.execute('SELECT COUNT(*) FROM answer_keys')
+        total_keys = cursor.fetchone()[0]
+        
+        # Date range
+        cursor.execute('SELECT MIN(timestamp), MAX(timestamp) FROM students')
+        dates = cursor.fetchone()
+        
+        # Class distribution
+        cursor.execute('SELECT class, COUNT(*) FROM students GROUP BY class')
+        class_distribution = cursor.fetchall()
+        
+        conn.close()
+        
+        return jsonify({
+            'total_students': total_students,
+            'avg_score': round(avg_score, 2) if avg_score else 0,
+            'highest_score': round(highest_score, 2) if highest_score else 0,
+            'lowest_score': round(lowest_score, 2) if lowest_score else 0,
+            'total_keys': total_keys,
+            'date_range': {
+                'from': dates[0] if dates[0] else None,
+                'to': dates[1] if dates[1] else None
+            },
+            'class_distribution': [
+                {'class': c[0] or 'N/A', 'count': c[1]} for c in class_distribution
+            ]
+        })
+        
+    except Exception as e:
+        print(f"Database stats error: {e}")
+        return jsonify({'error': str(e)}), 500
 
+@app.route('/api/database/export/csv', methods=['GET'])
+def export_database_csv():
+    """Export entire database to CSV - FIXED"""
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        
+        # Fetch all student data
+        query = """
+            SELECT id, name, reg_no, class, score, total, percentage, 
+                   timestamp, detected_answers, bubbles_detected, rows_detected
+            FROM students
+            ORDER BY timestamp DESC
+        """
+        
+        df = pd.read_sql_query(query, conn)
+        
+        # Parse detected answers and calculate statistics
+        def parse_answers(answers_json):
+            try:
+                answers = json.loads(answers_json) if isinstance(answers_json, str) else answers_json
+                multiple_count = sum(1 for v in answers.values() if v == 'MULTIPLE')
+                blank_count = sum(1 for v in answers.values() if v in ['N/A', 'BLANK'])
+                return multiple_count, blank_count
+            except:
+                return 0, 0
+        
+        # Add multiple and blank counts
+        df[['multiple_answers', 'blank_answers']] = df['detected_answers'].apply(
+            lambda x: pd.Series(parse_answers(x))
+        )
+        
+        # Calculate wrong answers
+        df['wrong_answers'] = df['total'] - df['score'] - df['blank_answers'] - df['multiple_answers']
+        df['wrong_answers'] = df['wrong_answers'].clip(lower=0)  # Ensure no negative values
+        
+        # Drop the JSON column for cleaner export
+        df = df.drop('detected_answers', axis=1)
+        
+        # Rename columns for better readability
+        df.columns = ['ID', 'Student Name', 'Reg No', 'Class', 'Score', 'Total Questions', 
+                     'Percentage', 'Timestamp', 'Bubbles Detected', 'Rows Detected',
+                     'Multiple Answers', 'Blank Answers', 'Wrong Answers']
+        
+        # Create CSV
+        filename = f"all_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        filepath = os.path.join(RESULTS_FOLDER, filename)
+        
+        # Ensure directory exists
+        os.makedirs(RESULTS_FOLDER, exist_ok=True)
+        
+        df.to_csv(filepath, index=False)
+        
+        conn.close()
+        
+        # Verify file was created
+        if not os.path.exists(filepath):
+            raise Exception("CSV file was not created")
+        
+        return send_file(filepath, 
+                        mimetype='text/csv',
+                        as_attachment=True,
+                        download_name=filename)
+        
+    except Exception as e:
+        print(f"CSV Export Error: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/database/export/excel', methods=['GET'])
+def export_database_excel():
+    """Export entire database to Excel with multiple sheets - FIXED"""
+    try:
+        conn = sqlite3.connect(DATABASE_FILE)
+        
+        # Fetch all student data
+        students_query = """
+            SELECT id, name, reg_no, class, score, total, percentage, 
+                   timestamp, detected_answers, bubbles_detected, rows_detected
+            FROM students
+            ORDER BY timestamp DESC
+        """
+        
+        df_students = pd.read_sql_query(students_query, conn)
+        
+        if len(df_students) == 0:
+            return jsonify({'error': 'No data to export'}), 400
+        
+        # Parse detected answers and calculate statistics
+        def parse_answers(answers_json):
+            try:
+                answers = json.loads(answers_json) if isinstance(answers_json, str) else answers_json
+                multiple_count = sum(1 for v in answers.values() if v == 'MULTIPLE')
+                blank_count = sum(1 for v in answers.values() if v in ['N/A', 'BLANK'])
+                return multiple_count, blank_count
+            except:
+                return 0, 0
+        
+        # Add multiple and blank counts
+        df_students[['multiple_answers', 'blank_answers']] = df_students['detected_answers'].apply(
+            lambda x: pd.Series(parse_answers(x))
+        )
+        
+        # Calculate wrong answers
+        df_students['wrong_answers'] = df_students['total'] - df_students['score'] - df_students['blank_answers'] - df_students['multiple_answers']
+        df_students['wrong_answers'] = df_students['wrong_answers'].clip(lower=0)
+        
+        # Drop the JSON column for cleaner export
+        df_students = df_students.drop('detected_answers', axis=1)
+        
+        # Rename columns
+        df_students.columns = ['ID', 'Student Name', 'Reg No', 'Class', 'Score', 'Total Questions', 
+                              'Percentage', 'Timestamp', 'Bubbles Detected', 'Rows Detected',
+                              'Multiple Answers', 'Blank Answers', 'Wrong Answers']
+        
+        # Create summary statistics
+        summary_data = []
+        summary_data.append(['Total Students', len(df_students)])
+        summary_data.append(['Average Score', f"{df_students['Percentage'].mean():.2f}%"])
+        summary_data.append(['Highest Score', f"{df_students['Percentage'].max():.2f}%"])
+        summary_data.append(['Lowest Score', f"{df_students['Percentage'].min():.2f}%"])
+        summary_data.append(['Total Multiple Answers', df_students['Multiple Answers'].sum()])
+        
+        # Class-wise statistics
+        class_stats = df_students.groupby('Class').agg({
+            'Student Name': 'count',
+            'Percentage': 'mean'
+        }).round(2)
+        class_stats.columns = ['Student Count', 'Average Percentage']
+        
+        # Create Excel file with multiple sheets
+        filename = f"all_results_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+        filepath = os.path.join(RESULTS_FOLDER, filename)
+        
+        # Ensure directory exists
+        os.makedirs(RESULTS_FOLDER, exist_ok=True)
+        
+        with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
+            # Write summary sheet
+            df_summary = pd.DataFrame(summary_data, columns=['Metric', 'Value'])
+            df_summary.to_excel(writer, sheet_name='Summary', index=False)
+            
+            # Write all students data
+            df_students.to_excel(writer, sheet_name='All Students', index=False)
+            
+            # Write class statistics
+            class_stats.to_excel(writer, sheet_name='Class Statistics')
+            
+            # Add date-wise statistics
+            df_students['Date'] = pd.to_datetime(df_students['Timestamp']).dt.date
+            date_stats = df_students.groupby('Date').agg({
+                'Student Name': 'count',
+                'Percentage': 'mean'
+            }).round(2)
+            date_stats.columns = ['Students Scanned', 'Average Score']
+            date_stats.to_excel(writer, sheet_name='Daily Statistics')
+        
+        conn.close()
+        
+        # Verify file was created
+        if not os.path.exists(filepath):
+            raise Exception("Excel file was not created")
+        
+        return send_file(filepath,
+                        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        as_attachment=True,
+                        download_name=filename)
+        
+    except Exception as e:
+        print(f"Excel Export Error: {e}")
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/database/backup', methods=['POST'])
+def backup_database():
+    """Create a backup of the database"""
+    try:
+        backup_filename = f"omr_backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
+        backup_path = os.path.join(RESULTS_FOLDER, backup_filename)
+        
+        # Copy the database file
+        import shutil
+        shutil.copy2(DATABASE_FILE, backup_path)
+        
+        # Get file size
+        file_size = os.path.getsize(backup_path)
+        
+        return jsonify({
+            'message': 'Database backup created successfully',
+            'filename': backup_filename,
+            'size': file_size,
+            'path': backup_path
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Batch operations for database management
+@app.route('/api/database/delete-multiple', methods=['POST'])
+def delete_multiple_records():
+    """Delete multiple student records at once"""
+    try:
+        data = request.get_json()
+        ids_to_delete = data.get('ids', [])
+        
+        if not ids_to_delete:
+            return jsonify({'error': 'No IDs provided'}), 400
+        
+        conn = sqlite3.connect(DATABASE_FILE)
+        cursor = conn.cursor()
+        
+        # Create placeholders for SQL query
+        placeholders = ','.join('?' * len(ids_to_delete))
+        query = f'DELETE FROM students WHERE id IN ({placeholders})'
+        
+        cursor.execute(query, ids_to_delete)
+        deleted_count = cursor.rowcount
+        
+        conn.commit()
+        conn.close()
+        
+        return jsonify({
+            'message': f'Successfully deleted {deleted_count} records',
+            'deleted_count': deleted_count,
+            'deleted_ids': ids_to_delete
+        })
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Keep all existing API routes
 @app.route('/api/get-answer-key', methods=['GET'])
 def get_answer_key():
     """Get current answer key with display"""
@@ -1152,6 +1434,7 @@ def scan_single_omr():
         
         return jsonify({
             "message": "OMR sheet scanned and saved successfully",
+            "id": student_id,  # Added ID field for frontend
             "student_id": student_id,
             "student_name": student_name,
             "reg_no": reg_no,
@@ -1404,6 +1687,7 @@ def scan_from_ip_camera():
 
         return jsonify({
             "message": "OMR sheet scanned from camera and saved successfully",
+            "id": student_id,  # Added ID field
             "student_id": student_id,
             "student_name": student_name,
             "reg_no": reg_no,
@@ -1633,20 +1917,19 @@ def get_system_status():
             "results_folder_exists": os.path.exists(RESULTS_FOLDER),
             "database_file_exists": os.path.exists(DATABASE_FILE),
             "server_time": datetime.now().isoformat(),
-            "version": "7.0.0-MULTIPLE-DETECTION",
+            "version": "8.0.0-DATABASE-EXPORT-FIXED",
             "detection_settings": {
                 "bubble_threshold": BUBBLE_THRESHOLD,
                 "dynamic_threshold": DYNAMIC_THRESHOLD,
                 "relative_threshold": RELATIVE_THRESHOLD
             },
             "features": [
-                "FIXED: Multiple bubble detection now working correctly",
-                "Dynamic threshold calculation for better accuracy",
-                "Comprehensive answer statistics including multiple marks",
-                "Enhanced UI with multiple answer display",
-                "All export formats support multiple answer reporting",
-                "Database persistence",
-                "Real-time notifications"
+                "FIXED: Database export functionality working",
+                "FIXED: Multiple bubble detection working correctly",
+                "Database viewer with filtering and sorting",
+                "Bulk delete and individual delete options",
+                "CSV and Excel export for entire database",
+                "Dynamic threshold calculation for better accuracy"
             ]
         })
     except Exception as e:
@@ -1666,49 +1949,31 @@ def request_entity_too_large(error):
     return jsonify({"error": "File too large. Maximum size is 16MB"}), 413
 
 if __name__ == '__main__':
-    print("Starting Enhanced OMR Scanner API v7.0.0 - MULTIPLE DETECTION FIXED")
+    print("Starting Enhanced OMR Scanner API v8.0.0 - DATABASE EXPORT FIXED")
     print("=" * 80)
-    print("MAJOR FIX APPLIED:")
-    print("   ✅ MULTIPLE BUBBLE DETECTION NOW WORKING:")
-    print("      - Detects ALL bubbles filled above threshold")
-    print("      - Returns 'MULTIPLE' when more than one bubble is filled")
-    print("      - Dynamic threshold calculation for better accuracy")
-    print("      - Relative threshold: bubble must be 70% as filled as max")
-    print("")
-    print("DETECTION SETTINGS:")
-    print(f"   - Static Bubble Threshold: {BUBBLE_THRESHOLD}")
-    print(f"   - Dynamic Threshold Enabled: {DYNAMIC_THRESHOLD}")
-    print(f"   - Relative Threshold: {RELATIVE_THRESHOLD}")
-    print("")
-    print("How it works:")
-    print("   1. Calculates fill ratio for EACH bubble in a question")
-    print("   2. If dynamic threshold is enabled:")
-    print("      - Finds the maximum fill ratio")
-    print("      - Sets threshold to max * relative_threshold")
-    print("   3. Marks ALL bubbles above threshold as filled")
-    print("   4. Returns 'MULTIPLE' if more than one bubble is filled")
-    print("")
-    print("STATUS SYMBOLS:")
-    print("   ✓ = Correct answer")
-    print("   ✗ = Wrong answer")
-    print("   - = Blank/No answer")
-    print("   M = Multiple answers detected")
+    print("ALL FIXES APPLIED:")
+    print("   ✅ DATABASE EXPORT NOW WORKING:")
+    print("      - CSV export using send_file for proper download")
+    print("      - Excel export with multiple sheets")
+    print("      - Proper file serving with correct MIME types")
+    print("      - Database statistics endpoint")
+    print("   ✅ MULTIPLE BUBBLE DETECTION WORKING")
+    print("   ✅ DELETE FUNCTIONALITY:")
+    print("      - Individual record deletion")
+    print("      - Bulk deletion support")
+    print("      - Clear all records")
+    print("   ✅ DATABASE VIEWER IN UI:")
+    print("      - Filter by class and date")
+    print("      - Sort by multiple fields")
+    print("      - Export individual or all records")
+    print("      - View detailed statistics")
     print("")
     print("Available endpoints:")
-    print("- GET  /api/health (health check with detection settings)")
-    print("- GET  /api/status (comprehensive system status)")
-    print("- GET  /api/get-answer-key (get current answer key)")
-    print("- POST /api/set-sample-answer-key (set sample answer key)")
-    print("- POST /api/scan-answer-key (scan answer key from image/camera)")
-    print("- POST /api/load-answer-key (load answer key from file)")
-    print("- POST /api/scan-single (scan single OMR sheet)")
-    print("- POST /api/scan-multiple (scan multiple OMR sheets)")
-    print("- POST /api/scan-camera (scan from IP/mobile camera)")
-    print("- GET  /api/results (get all results)")
-    print("- DELETE /api/results/<id> (delete single result)")
-    print("- DELETE /api/results (clear all results)")
-    print("- GET  /api/export/<format>/<id> (export by result ID)")
-    print("- GET  /api/download/<filename> (download exported files)")
+    print("- GET  /api/database/stats (get statistics)")
+    print("- GET  /api/database/export/csv (export all to CSV)")
+    print("- GET  /api/database/export/excel (export all to Excel)")
+    print("- POST /api/database/backup (create backup)")
+    print("- POST /api/database/delete-multiple (bulk delete)")
     print("")
     print(f"Server starting on http://localhost:5000")
     print("=" * 80)
