@@ -10,7 +10,7 @@ import {
   Users,
   FileText,
   User,
-  IdCard,
+  CreditCard,
   GraduationCap,
   Eye,
   Trash2,
@@ -19,7 +19,8 @@ import {
   XCircle,
   AlertCircle,
   RefreshCw,
-  X
+  X,
+  AlertTriangle
 } from "lucide-react";
 
 // Simple Card components with better spacing
@@ -107,7 +108,7 @@ export default function App() {
     }
   };
 
-const fetchAllResults = async () => {
+  const fetchAllResults = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/results`);
       if (response.ok) {
@@ -159,6 +160,37 @@ const fetchAllResults = async () => {
       
     } catch (err) {
       console.error("Answer key scan error:", err);
+      showNotification(err.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Set Sample Answer Key
+  const handleSetSampleAnswerKey = async () => {
+    setLoading(true);
+    
+    try {
+      const response = await fetch(`${API_BASE_URL}/set-sample-answer-key`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setAnswerKey(data.answer_key);
+        setAnswerKeyLoaded(true);
+        showNotification("Sample answer key loaded successfully!", "success");
+        console.log("Sample answer key set:", data.answer_key);
+      } else {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to set sample answer key');
+      }
+      
+    } catch (err) {
+      console.error("Sample answer key error:", err);
       showNotification(err.message, "error");
     } finally {
       setLoading(false);
@@ -234,7 +266,13 @@ const fetchAllResults = async () => {
         const data = await response.json();
         setCurrentResult(data);
         await fetchAllResults();
-        showNotification("OMR sheet scanned successfully!", "success");
+        
+        // Check for multiple answers and show special notification
+        if (data.multiple_answers && data.multiple_answers > 0) {
+          showNotification(`⚠️ Detected ${data.multiple_answers} questions with multiple bubbles marked!`, "warning");
+        } else {
+          showNotification("OMR sheet scanned successfully!", "success");
+        }
         console.log("Scan result:", data);
       } else {
         const errorData = await response.json();
@@ -277,7 +315,14 @@ const fetchAllResults = async () => {
       if (response.ok) {
         const data = await response.json();
         await fetchAllResults();
-        showNotification(`Successfully processed ${data.total_processed} OMR sheets!`, "success");
+        
+        // Count total multiple answers across all sheets
+        const totalMultiple = data.results?.reduce((sum, r) => sum + (r.multiple_answers || 0), 0) || 0;
+        if (totalMultiple > 0) {
+          showNotification(`⚠️ Processed ${data.total_processed} sheets. Found ${totalMultiple} questions with multiple marks!`, "warning");
+        } else {
+          showNotification(`Successfully processed ${data.total_processed} OMR sheets!`, "success");
+        }
         console.log("Batch scan results:", data);
       } else {
         const errorData = await response.json();
@@ -324,7 +369,13 @@ const fetchAllResults = async () => {
         const data = await response.json();
         setCurrentResult(data);
         await fetchAllResults();
-        showNotification("Camera scan completed successfully!", "success");
+        
+        // Check for multiple answers and show special notification
+        if (data.multiple_answers && data.multiple_answers > 0) {
+          showNotification(`⚠️ Detected ${data.multiple_answers} questions with multiple bubbles marked!`, "warning");
+        } else {
+          showNotification("Camera scan completed successfully!", "success");
+        }
         console.log("Camera scan result:", data);
       } else {
         const errorData = await response.json();
@@ -339,9 +390,22 @@ const fetchAllResults = async () => {
     }
   };
 
-  // Fixed Export Results function
-  const handleExportResult = async (resultIndex) => {
-    if (!results || resultIndex >= results.length || resultIndex < 0) {
+  // Export Results function
+  const handleExportResult = async (resultId) => {
+    // Handle both direct ID and index-based calls
+    let actualResultId;
+    
+    if (typeof resultId === 'object') {
+      // If passed a result object, extract the ID
+      actualResultId = resultId.id;
+    } else if (typeof resultId === 'number') {
+      // It's already an ID
+      actualResultId = resultId;
+    } else {
+      actualResultId = resultId;
+    }
+
+    if (!actualResultId) {
       showNotification("Invalid result selection", "error");
       return;
     }
@@ -349,49 +413,36 @@ const fetchAllResults = async () => {
     setExportLoading(true);
     
     try {
-      // Use the actual result ID instead of index for the API call
-      const result = results[resultIndex];
-      const resultId = result.id || resultIndex;
+      console.log("Exporting result ID:", actualResultId, "Format:", selectedFormat);
       
-      console.log("Attempting to export result:", resultId, "Format:", selectedFormat);
-      
-      // Method 1: Direct download approach
-      const response = await fetch(`${API_BASE_URL}/export/${selectedFormat}/${resultId}`);
+      // Call the export endpoint with the actual result ID
+      const response = await fetch(`${API_BASE_URL}/export/${selectedFormat}/${actualResultId}`);
       
       if (!response.ok) {
-        console.error("Export failed:", response.status, response.statusText);
-        const errorData = await response.text();
-        console.error("Error response:", errorData);
-        throw new Error(`Export failed: ${response.statusText}`);
+        const errorData = await response.json();
+        throw new Error(errorData.error || `Export failed: ${response.statusText}`);
       }
 
       const data = await response.json();
       console.log("Export response:", data);
 
-      if (data.success && data.download_url) {
-        // Download the file using the provided URL
-        const downloadResponse = await fetch(`${API_BASE_URL.replace('/api', '')}${data.download_url}`);
+      if (data.success && data.filename) {
+        // Create the download URL
+        const downloadUrl = `${API_BASE_URL}/download/${data.filename}`;
         
-        if (!downloadResponse.ok) {
-          throw new Error(`Download failed: ${downloadResponse.statusText}`);
-        }
-
-        const blob = await downloadResponse.blob();
-        
-        if (blob.size === 0) {
-          throw new Error('Downloaded file is empty');
-        }
-
-        // Create download link
-        const url = window.URL.createObjectURL(blob);
+        // Create a temporary link and trigger download
         const link = document.createElement('a');
-        link.href = url;
+        link.href = downloadUrl;
         link.download = data.filename;
+        link.style.display = 'none';
         
         document.body.appendChild(link);
         link.click();
-        link.remove();
-        window.URL.revokeObjectURL(url);
+        
+        // Clean up
+        setTimeout(() => {
+          document.body.removeChild(link);
+        }, 100);
         
         showNotification(`File exported successfully as ${selectedFormat.toUpperCase()}!`, "success");
       } else {
@@ -407,20 +458,17 @@ const fetchAllResults = async () => {
   };
 
   // Delete result
-  const handleDeleteResult = async (resultIndex) => {
+  const handleDeleteResult = async (resultId) => {
     if (!confirm("Are you sure you want to delete this result?")) return;
     
     try {
-      const result = results[resultIndex];
-      const resultId = result.id || resultIndex;
-      
       const response = await fetch(`${API_BASE_URL}/results/${resultId}`, {
         method: 'DELETE'
       });
       
       if (response.ok) {
         await fetchAllResults();
-        if (currentResult && results[resultIndex] === currentResult) {
+        if (currentResult && currentResult.id === resultId) {
           setCurrentResult(null);
         }
         showNotification("Result deleted successfully!", "success");
@@ -492,12 +540,14 @@ const fetchAllResults = async () => {
           <div className={`p-4 rounded-lg shadow-lg backdrop-blur-lg border ${
             notification.type === 'success' ? 'bg-green-500/20 border-green-500/50 text-green-300' :
             notification.type === 'error' ? 'bg-red-500/20 border-red-500/50 text-red-300' :
+            notification.type === 'warning' ? 'bg-yellow-500/20 border-yellow-500/50 text-yellow-300' :
             'bg-blue-500/20 border-blue-500/50 text-blue-300'
           }`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 {notification.type === 'success' && <CheckCircle size={20} />}
                 {notification.type === 'error' && <XCircle size={20} />}
+                {notification.type === 'warning' && <AlertTriangle size={20} />}
                 {notification.type === 'info' && <AlertCircle size={20} />}
                 <span className="text-sm font-medium">{notification.message}</span>
               </div>
@@ -551,6 +601,9 @@ const fetchAllResults = async () => {
           <h1 className="text-4xl md:text-6xl font-extrabold mb-6 tracking-wide">
             Enhanced OMR Scanner
           </h1>
+          <div className="text-sm text-gray-400 mb-4">
+            v7.0 - Multiple Bubble Detection Fixed
+          </div>
           
           {/* Status Indicators */}
           <div className="flex flex-wrap justify-center gap-4 mb-8">
@@ -571,6 +624,18 @@ const fetchAllResults = async () => {
               </div>
             </div>
           </div>
+
+          {/* Quick Action: Load Sample Answer Key if not loaded */}
+          {!answerKeyLoaded && (
+            <div className="mb-4">
+              <button
+                onClick={handleSetSampleAnswerKey}
+                className="bg-orange-500/20 hover:bg-orange-500/30 text-orange-300 px-6 py-3 rounded-lg transition-colors border border-orange-500/30"
+              >
+                Load Sample Answer Key (10 Questions)
+              </button>
+            </div>
+          )}
         </motion.div>
 
         {/* Student Details Input */}
@@ -595,7 +660,7 @@ const fetchAllResults = async () => {
                   />
                 </div>
                 <div className="flex items-center space-x-3">
-                  <IdCard size={20} className="text-purple-400 flex-shrink-0" />
+                  <CreditCard size={20} className="text-purple-400 flex-shrink-0" />
                   <input
                     type="text"
                     value={regNo}
@@ -663,6 +728,20 @@ const fetchAllResults = async () => {
                     </select>
                   </div>
                 </div>
+                {answerKey && (
+                  <div className="mt-6">
+                    <h4 className="text-sm font-medium mb-3">Current Answer Key:</h4>
+                    <div className="bg-black/30 p-4 rounded-lg">
+                      <div className="grid grid-cols-5 gap-2">
+                        {Object.entries(answerKey).map(([q, ans]) => (
+                          <div key={q} className="bg-white/10 p-2 rounded text-center text-sm">
+                            Q{q}: <span className="font-bold text-green-400">{ans}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </motion.div>
@@ -865,16 +944,23 @@ const fetchAllResults = async () => {
                 
                 {results.length > 0 ? (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-h-96 overflow-y-auto">
-                    {results.map((result, index) => (
+                    {results.map((result) => (
                       <motion.div
-                        key={result.id || index}
+                        key={result.id}
                         whileHover={{ scale: 1.02 }}
                         className="bg-white/5 rounded-lg p-6 border border-white/10 hover:border-white/20 transition-all duration-300"
                       >
+                        {/* Multiple answers warning badge */}
+                        {result.multiple_answers > 0 && (
+                          <div className="absolute -top-2 -right-2 bg-yellow-500 text-black rounded-full w-8 h-8 flex items-center justify-center font-bold text-sm">
+                            {result.multiple_answers}M
+                          </div>
+                        )}
+                        
                         <div className="flex justify-between items-start mb-4">
                           <div className="flex-1">
                             <h4 className="font-semibold text-lg mb-1">
-                              {result.student_name || `Student ${index + 1}`}
+                              {result.student_name || 'Unknown Student'}
                             </h4>
                             <p className="text-sm text-gray-300">
                               Reg: {result.reg_no || 'N/A'}
@@ -901,7 +987,7 @@ const fetchAllResults = async () => {
                         <div className="grid grid-cols-2 gap-3 text-xs mb-4">
                           <div className="flex items-center space-x-1">
                             <CheckCircle size={12} className="text-green-400" />
-                            <span className="text-green-400">Correct: {result.correct_answers || 0}</span>
+                            <span className="text-green-400">Correct: {result.correct_answers || result.score || 0}</span>
                           </div>
                           <div className="flex items-center space-x-1">
                             <XCircle size={12} className="text-red-400" />
@@ -912,8 +998,8 @@ const fetchAllResults = async () => {
                             <span className="text-yellow-400">Blank: {result.blank_answers || 0}</span>
                           </div>
                           <div className="flex items-center space-x-1">
-                            <AlertCircle size={12} className="text-gray-400" />
-                            <span className="text-gray-400">Multiple: {result.multiple_answers || 0}</span>
+                            <AlertTriangle size={12} className="text-orange-400" />
+                            <span className="text-orange-400 font-bold">Multiple: {result.multiple_answers || 0}</span>
                           </div>
                         </div>
 
@@ -923,7 +1009,11 @@ const fetchAllResults = async () => {
                             <p className="text-xs text-gray-400 mb-2">Detected Answers:</p>
                             <div className="text-xs font-mono bg-black/30 p-3 rounded max-h-16 overflow-y-auto">
                               {typeof result.detected_answers === 'object' 
-                                ? Object.entries(result.detected_answers).map(([q, ans]) => `Q${q}:${ans}`).join(' ')
+                                ? Object.entries(result.detected_answers).map(([q, ans]) => (
+                                    <span key={q} className={ans === 'MULTIPLE' ? 'text-orange-400 font-bold' : ''}>
+                                      Q{q}:{ans}{' '}
+                                    </span>
+                                  ))
                                 : result.detected_answers}
                             </div>
                           </div>
@@ -931,7 +1021,7 @@ const fetchAllResults = async () => {
 
                         <div className="flex flex-col sm:flex-row gap-2">
                           <button
-                            onClick={() => handleExportResult(index)}
+                            onClick={() => handleExportResult(result.id)}
                             disabled={exportLoading}
                             className="flex-1 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-4 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 flex items-center justify-center space-x-1"
                           >
@@ -946,7 +1036,7 @@ const fetchAllResults = async () => {
                             <span>View</span>
                           </button>
                           <button
-                            onClick={() => handleDeleteResult(index)}
+                            onClick={() => handleDeleteResult(result.id)}
                             className="bg-red-500/20 hover:bg-red-500/30 text-red-300 px-4 py-2 rounded-lg text-sm transition-colors flex items-center justify-center"
                           >
                             <Trash2 size={14} />
@@ -988,6 +1078,22 @@ const fetchAllResults = async () => {
                   </button>
                 </div>
 
+                {/* Warning if multiple answers detected */}
+                {currentResult.multiple_answers > 0 && (
+                  <div className="bg-yellow-500/20 border border-yellow-500/50 rounded-lg p-4 mb-6">
+                    <div className="flex items-center space-x-2">
+                      <AlertTriangle size={24} className="text-yellow-400" />
+                      <div>
+                        <h4 className="font-bold text-yellow-300">Multiple Bubbles Detected!</h4>
+                        <p className="text-yellow-200 text-sm">
+                          {currentResult.multiple_answers} question(s) have multiple bubbles marked. 
+                          These are marked as "MULTIPLE" and counted as incorrect.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                   {/* Student Information */}
                   <div className="space-y-6">
@@ -1000,7 +1106,7 @@ const fetchAllResults = async () => {
                           <span className="font-medium">{currentResult.student_name || 'N/A'}</span>
                         </div>
                         <div className="flex items-center space-x-2">
-                          <IdCard size={16} className="text-gray-400" />
+                          <CreditCard size={16} className="text-gray-400" />
                           <span className="text-gray-300">Registration:</span>
                           <span className="font-medium">{currentResult.reg_no || 'N/A'}</span>
                         </div>
@@ -1041,20 +1147,28 @@ const fetchAllResults = async () => {
                         
                         <div className="grid grid-cols-2 gap-4">
                           <div className="text-center bg-green-500/10 rounded-lg p-4">
-                            <div className="text-2xl font-bold text-green-400">{currentResult.correct_answers || 0}</div>
+                            <div className="text-2xl font-bold text-green-400">
+                              {currentResult.correct_answers || currentResult.score || 0}
+                            </div>
                             <div className="text-sm text-green-300">Correct</div>
                           </div>
                           <div className="text-center bg-red-500/10 rounded-lg p-4">
-                            <div className="text-2xl font-bold text-red-400">{currentResult.wrong_answers || 0}</div>
+                            <div className="text-2xl font-bold text-red-400">
+                              {currentResult.wrong_answers || 0}
+                            </div>
                             <div className="text-sm text-red-300">Wrong</div>
                           </div>
                           <div className="text-center bg-yellow-500/10 rounded-lg p-4">
-                            <div className="text-2xl font-bold text-yellow-400">{currentResult.blank_answers || 0}</div>
+                            <div className="text-2xl font-bold text-yellow-400">
+                              {currentResult.blank_answers || 0}
+                            </div>
                             <div className="text-sm text-yellow-300">Blank</div>
                           </div>
-                          <div className="text-center bg-gray-500/10 rounded-lg p-4">
-                            <div className="text-2xl font-bold text-gray-400">{currentResult.multiple_answers || 0}</div>
-                            <div className="text-sm text-gray-300">Multiple</div>
+                          <div className="text-center bg-orange-500/10 rounded-lg p-4">
+                            <div className="text-2xl font-bold text-orange-400">
+                              {currentResult.multiple_answers || 0}
+                            </div>
+                            <div className="text-sm text-orange-300">Multiple</div>
                           </div>
                         </div>
                       </div>
@@ -1071,24 +1185,24 @@ const fetchAllResults = async () => {
                             <div 
                               key={index} 
                               className={`flex justify-between items-center p-3 rounded-lg text-sm transition-all ${
+                                detail.detected === 'MULTIPLE' ? 'bg-orange-500/20 text-orange-300 border border-orange-500/30' :
                                 detail.is_correct || detail.status === '✓' ? 'bg-green-500/10 text-green-300 border border-green-500/20' : 
                                 detail.detected === 'N/A' || detail.detected === 'BLANK' || detail.status === '-' ? 'bg-yellow-500/10 text-yellow-300 border border-yellow-500/20' :
-                                detail.detected === 'MULTIPLE' ? 'bg-gray-500/10 text-gray-300 border border-gray-500/20' :
                                 'bg-red-500/10 text-red-300 border border-red-500/20'
                               }`}
                             >
                               <span className="font-medium">Q{detail.question || index + 1}:</span>
                               <div className="flex items-center space-x-3">
-                                <span>
+                                <span className={detail.detected === 'MULTIPLE' ? 'font-bold text-orange-400' : ''}>
                                   <span className="text-gray-400">Detected:</span> {detail.detected || detail.detected_answer || 'N/A'}
                                 </span>
                                 <span>
                                   <span className="text-gray-400">Correct:</span> {detail.correct || detail.correct_answer || 'N/A'}
                                 </span>
                                 <span className="text-lg">
-                                  {detail.is_correct || detail.status === '✓' ? '✓' : 
-                                   detail.detected === 'N/A' || detail.detected === 'BLANK' || detail.status === '-' ? '○' :
-                                   detail.detected === 'MULTIPLE' ? '?' : '✗'}
+                                  {detail.detected === 'MULTIPLE' ? '⚠️' :
+                                   detail.is_correct || detail.status === '✓' ? '✓' : 
+                                   detail.detected === 'N/A' || detail.detected === 'BLANK' || detail.status === '-' ? '○' : '✗'}
                                 </span>
                               </div>
                             </div>
@@ -1101,8 +1215,8 @@ const fetchAllResults = async () => {
                             <div className="bg-black/30 p-4 rounded-lg font-mono text-sm">
                               {typeof currentResult.detected_answers === 'object' 
                                 ? Object.entries(currentResult.detected_answers).map(([q, ans], i) => (
-                                    <span key={i} className="inline-block mr-4 mb-2">
-                                      Q{q}: <span className="text-green-400">{ans}</span>
+                                    <span key={i} className={`inline-block mr-4 mb-2 ${ans === 'MULTIPLE' ? 'text-orange-400 font-bold' : ''}`}>
+                                      Q{q}: <span className={ans === 'MULTIPLE' ? 'text-orange-400' : 'text-green-400'}>{ans}</span>
                                     </span>
                                   ))
                                 : currentResult.detected_answers}
@@ -1135,8 +1249,13 @@ const fetchAllResults = async () => {
                 <div className="mt-8 flex flex-col sm:flex-row justify-center gap-4">
                   <button
                     onClick={() => {
-                      const resultIndex = results.findIndex(r => r.id === currentResult.id || r === currentResult);
-                      if (resultIndex >= 0) handleExportResult(resultIndex);
+                      if (currentResult && currentResult.id) {
+                        handleExportResult(currentResult.id);
+                      } else if (currentResult && currentResult.student_id) {
+                        handleExportResult(currentResult.student_id);
+                      } else {
+                        showNotification("No result ID found", "error");
+                      }
                     }}
                     disabled={exportLoading}
                     className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-8 py-3 rounded-lg transition-colors disabled:opacity-50 flex items-center justify-center space-x-2"
@@ -1159,7 +1278,7 @@ const fetchAllResults = async () => {
 
         {/* Footer */}
         <div className="text-center text-gray-400 text-sm mt-12">
-          <p className="mb-2">Enhanced OMR Scanner - Scan, Process, Export</p>
+          <p className="mb-2">Enhanced OMR Scanner v7.0 - Multiple Bubble Detection Fixed</p>
           <p className="flex items-center justify-center space-x-2">
             {answerKeyLoaded ? (
               <><CheckCircle size={16} className="text-green-400" /><span>Ready to scan</span></>
