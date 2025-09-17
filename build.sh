@@ -3,10 +3,10 @@ set -e
 
 echo "Installing frontend dependencies..."
 cd frontend
-npm install
+npm ci
 
 echo "Building frontend..."
-npm run build
+npx vite build  # Use npx to ensure vite is executed properly
 
 echo "Moving back to root..."
 cd ..
