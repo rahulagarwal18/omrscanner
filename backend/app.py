@@ -1000,8 +1000,8 @@ def health_check():
     """Health check endpoint"""
     return jsonify({
         "status": "success",
-        "message": "Enhanced OMR Scanner API with Database Export Fixed",
-        "version": "8.0.0-DATABASE-EXPORT-FIXED",
+        "message": "Enhanced OMR Scanner API - Mobile Camera Fix Applied",
+        "version": "8.1.0-MOBILE-FIX",
         "timestamp": datetime.now().isoformat(),
         "directories": {
             "uploads": os.path.exists(UPLOAD_FOLDER),
@@ -1349,10 +1349,40 @@ def scan_answer_key():
             image = cv2.imdecode(image_data, cv2.IMREAD_COLOR)
         
         elif request.json and 'image' in request.json:
-            base64_data = request.json['image'].split(',')[1] if ',' in request.json['image'] else request.json['image']
-            image_data = base64.b64decode(base64_data)
-            nparr = np.frombuffer(image_data, np.uint8)
-            image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+            try:
+                # Handle base64 image data more robustly
+                image_str = request.json['image']
+                
+                # Remove data URL prefix if present
+                if 'base64,' in image_str:
+                    base64_data = image_str.split('base64,')[1]
+                else:
+                    base64_data = image_str
+                
+                # Clean up base64 string (remove whitespace, newlines)
+                base64_data = base64_data.strip()
+                
+                # Decode base64 to bytes
+                image_bytes = base64.b64decode(base64_data)
+                
+                # Check if we have actual data
+                if len(image_bytes) == 0:
+                    raise ValueError("Empty image data received")
+                
+                # Convert to numpy array
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                
+                # Decode image
+                image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                
+                # Verify image was decoded successfully
+                if image is None:
+                    raise ValueError("Failed to decode image - invalid format")
+                    
+            except Exception as decode_error:
+                print(f"Image decode error: {decode_error}")
+                print(f"Base64 data length: {len(request.json.get('image', ''))}")
+                return jsonify({"error": f"Failed to decode image: {str(decode_error)}"}), 400
         
         if image is None:
             return jsonify({"error": "Could not read image"}), 400
@@ -1424,10 +1454,40 @@ def scan_single_omr():
         
         elif request.json:
             if 'image' in request.json:
-                base64_data = request.json['image'].split(',')[1] if ',' in request.json['image'] else request.json['image']
-                image_data = base64.b64decode(base64_data)
-                nparr = np.frombuffer(image_data, np.uint8)
-                image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                try:
+                    # Handle base64 image data more robustly
+                    image_str = request.json['image']
+                    
+                    # Remove data URL prefix if present
+                    if 'base64,' in image_str:
+                        base64_data = image_str.split('base64,')[1]
+                    else:
+                        base64_data = image_str
+                    
+                    # Clean up base64 string (remove whitespace, newlines)
+                    base64_data = base64_data.strip()
+                    
+                    # Decode base64 to bytes
+                    image_bytes = base64.b64decode(base64_data)
+                    
+                    # Check if we have actual data
+                    if len(image_bytes) == 0:
+                        raise ValueError("Empty image data received")
+                    
+                    # Convert to numpy array
+                    nparr = np.frombuffer(image_bytes, np.uint8)
+                    
+                    # Decode image
+                    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    
+                    # Verify image was decoded successfully
+                    if image is None:
+                        raise ValueError("Failed to decode image - invalid format")
+                        
+                except Exception as decode_error:
+                    print(f"Image decode error in scan-single: {decode_error}")
+                    print(f"Base64 data length: {len(request.json.get('image', ''))}")
+                    return jsonify({"error": f"Failed to decode image: {str(decode_error)}"}), 400
             
             student_name = request.json.get('student_name', 'Unknown')
             reg_no = request.json.get('reg_no', 'N/A')
@@ -1480,12 +1540,15 @@ def scan_single_omr():
 
 @app.route('/api/scan-multiple', methods=['POST'])
 def scan_multiple_omr():
-    """Scan multiple OMR sheets with individual student details"""
+    """Scan multiple OMR sheets - FIXED for mobile camera batch processing"""
     try:
         answer_key = get_current_answer_key()
         if not answer_key:
             return jsonify({"error": "No answer key loaded"}), 400
 
+        results = []
+        scanner = OMRScanner(answer_key)
+        
         if request.files:
             files = request.files.getlist('files')
             if not files:
@@ -1495,43 +1558,6 @@ def scan_multiple_omr():
             reg_nos = request.form.getlist('reg_nos[]') or []
             classes = request.form.getlist('classes[]') or []
             
-        elif request.json:
-            images_data = request.json.get('images', [])
-            student_details = request.json.get('student_details', [])
-            
-            if not images_data:
-                return jsonify({"error": "No images provided"}), 400
-            
-            files = []
-            student_names = []
-            reg_nos = []
-            classes = []
-            
-            for i, img_data in enumerate(images_data):
-                base64_data = img_data.split(',')[1] if ',' in img_data else img_data
-                image_data = base64.b64decode(base64_data)
-                nparr = np.frombuffer(image_data, np.uint8)
-                image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-                
-                if image is not None:
-                    temp_filename = f"temp_multiple_{i}_{datetime.now().strftime('%H%M%S')}.jpg"
-                    temp_filepath = os.path.join(UPLOAD_FOLDER, temp_filename)
-                    cv2.imwrite(temp_filepath, image)
-                    files.append({'path': temp_filepath, 'name': f"sheet_{i+1}.jpg"})
-                
-                if i < len(student_details):
-                    student_names.append(student_details[i].get('name', f'Student_{i+1}'))
-                    reg_nos.append(student_details[i].get('reg_no', f'REG_{i+1:03d}'))
-                    classes.append(student_details[i].get('class', 'Batch_Scan'))
-                else:
-                    student_names.append(f'Student_{i+1}')
-                    reg_nos.append(f'REG_{i+1:03d}')
-                    classes.append('Batch_Scan')
-        
-        results = []
-        scanner = OMRScanner(answer_key)
-
-        if request.files:
             for i, file in enumerate(files):
                 if file.filename == '' or not allowed_file(file.filename):
                     continue
@@ -1592,18 +1618,37 @@ def scan_multiple_omr():
                     continue
         
         elif request.json:
-            for i, file_info in enumerate(files):
+            images_data = request.json.get('images', [])
+            student_details = request.json.get('student_details', [])
+            
+            if not images_data:
+                return jsonify({"error": "No images provided"}), 400
+            
+            for i, img_data in enumerate(images_data):
                 try:
-                    image = cv2.imread(file_info['path'])
+                    base64_data = img_data.split(',')[1] if ',' in img_data else img_data
+                    image_data = base64.b64decode(base64_data)
+                    nparr = np.frombuffer(image_data, np.uint8)
+                    image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                    
                     if image is not None:
                         scan_result = scanner.scan_sheet_from_image(image)
                         
+                        if i < len(student_details):
+                            student_name = student_details[i].get('name', f'Student_{i+1}')
+                            reg_no = student_details[i].get('reg_no', f'REG_{i+1:03d}')
+                            student_class = student_details[i].get('class', 'Batch_Scan')
+                        else:
+                            student_name = f'Student_{i+1}'
+                            reg_no = f'REG_{i+1:03d}'
+                            student_class = 'Batch_Scan'
+                        
                         student_data = {
-                            'name': student_names[i],
-                            'reg_no': reg_nos[i],
-                            'class': classes[i],
+                            'name': student_name,
+                            'reg_no': reg_no,
+                            'class': student_class,
                             'results': scan_result,
-                            'filename': file_info['name'],
+                            'filename': f"mobile_scan_{i+1}.jpg",
                             'timestamp': datetime.now().isoformat()
                         }
                         
@@ -1613,10 +1658,10 @@ def scan_multiple_omr():
                         
                         result_data = {
                             'id': student_id,
-                            'student_name': student_names[i],
-                            'reg_no': reg_nos[i],
-                            'class': classes[i],
-                            'filename': file_info['name'],
+                            'student_name': student_name,
+                            'reg_no': reg_no,
+                            'class': student_class,
+                            'filename': f"mobile_scan_{i+1}.jpg",
                             'timestamp': student_data['timestamp'],
                             'score': scan_result['score'],
                             'total_questions': scan_result['total'],
@@ -1632,12 +1677,9 @@ def scan_multiple_omr():
                         }
                         
                         results.append(result_data)
-
-                    os.remove(file_info['path'])
-
+                        
                 except Exception as e:
-                    if os.path.exists(file_info['path']):
-                        os.remove(file_info['path'])
+                    print(f"Error processing image {i}: {e}")
                     continue
 
         return jsonify({
@@ -1679,11 +1721,53 @@ def scan_from_ip_camera():
         
         elif 'image' in data:
             try:
-                base64_data = data['image'].split(',')[1] if ',' in data['image'] else data['image']
-                image_data = base64.b64decode(base64_data)
-                nparr = np.frombuffer(image_data, np.uint8)
+                # Handle base64 image data more robustly
+                image_str = data['image']
+                
+                # Remove data URL prefix if present
+                if 'base64,' in image_str:
+                    base64_data = image_str.split('base64,')[1]
+                else:
+                    base64_data = image_str
+                
+                # Clean up base64 string (remove whitespace, newlines)
+                base64_data = base64_data.strip()
+                
+                # Add padding if necessary
+                missing_padding = len(base64_data) % 4
+                if missing_padding:
+                    base64_data += '=' * (4 - missing_padding)
+                
+                # Decode base64 to bytes
+                image_bytes = base64.b64decode(base64_data)
+                
+                # Check if we have actual data
+                if len(image_bytes) == 0:
+                    raise ValueError("Empty image data received")
+                
+                # Convert to numpy array
+                nparr = np.frombuffer(image_bytes, np.uint8)
+                
+                # Decode image
                 image = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+                
+                # Verify image was decoded successfully
+                if image is None:
+                    # Try alternate decode method
+                    image = cv2.imdecode(nparr, cv2.IMREAD_UNCHANGED)
+                    if image is not None and len(image.shape) == 2:
+                        # Convert grayscale to BGR
+                        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+                    elif image is not None and image.shape[2] == 4:
+                        # Convert BGRA to BGR
+                        image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
+                    
+                if image is None:
+                    raise ValueError("Failed to decode image - invalid format or corrupted data")
+                    
             except Exception as e:
+                print(f"Mobile camera image processing error: {str(e)}")
+                print(f"Image data length: {len(data.get('image', ''))}")
                 return jsonify({"error": f"Failed to process mobile camera image: {str(e)}"}), 400
         
         if image is None:
@@ -1936,14 +2020,14 @@ def get_system_status():
             "results_folder_exists": os.path.exists(RESULTS_FOLDER),
             "database_file_exists": os.path.exists(DATABASE_FILE),
             "server_time": datetime.now().isoformat(),
-            "version": "8.0.0-DATABASE-EXPORT-FIXED",
+            "version": "8.1.0-MOBILE-FIX",
             "detection_settings": {
                 "bubble_threshold": BUBBLE_THRESHOLD,
                 "dynamic_threshold": DYNAMIC_THRESHOLD,
                 "relative_threshold": RELATIVE_THRESHOLD
             },
             "features": [
-                "FIXED: Database export functionality working",
+                "FIXED: Mobile camera processing without file save",
                 "FIXED: Multiple bubble detection working correctly",
                 "Database viewer with filtering and sorting",
                 "Bulk delete and individual delete options",
@@ -1968,10 +2052,11 @@ def request_entity_too_large(error):
     return jsonify({"error": "File too large. Maximum size is 16MB"}), 413
 
 if __name__ == '__main__':
-    print("Starting Enhanced OMR Scanner API v8.0.0")
+    print("Starting Enhanced OMR Scanner API v8.1.0 - Mobile Camera Fix")
     print("=" * 80)
     print("Features:")
-    print("   ✅ Frontend serving routes added")
+    print("   ✅ Mobile camera support fixed")
+    print("   ✅ No file save for base64 images")
     print("   ✅ Database export functionality")
     print("   ✅ Multiple bubble detection")
     print("   ✅ Delete functionality")
