@@ -25,7 +25,7 @@ import zipfile
 import sqlite3
 import sys
 import traceback
-from werkzeug.middleware.shared_data import SharedDataMiddleware
+from pathlib import Path
 
 if hasattr(sys.stdout, 'reconfigure'):
     sys.stdout.reconfigure(encoding='utf-8')
@@ -61,47 +61,82 @@ app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
 app.config['RESULTS_FOLDER'] = RESULTS_FOLDER
 app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
-# Serve static files properly
-app.wsgi_app = SharedDataMiddleware(app.wsgi_app, {
-    '/downloads': app.config['RESULTS_FOLDER']
-})
-
-# FRONTEND SERVING ROUTES - Added to serve React app
+# FRONTEND SERVING ROUTES - FIXED VERSION
 @app.route('/')
 def serve_frontend():
     """Serve the React frontend"""
-    frontend_path = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
-    if os.path.exists(os.path.join(frontend_path, 'index.html')):
-        return send_from_directory(frontend_path, 'index.html')
+    # Get absolute paths
+    backend_dir = Path(__file__).parent.absolute()
+    project_root = backend_dir.parent
+    frontend_dist = project_root / 'frontend' / 'dist'
+    
+    print(f"[DEBUG] Serving frontend from: {frontend_dist}")
+    print(f"[DEBUG] Frontend dist exists: {frontend_dist.exists()}")
+    
+    index_path = frontend_dist / 'index.html'
+    
+    if index_path.exists():
+        print(f"[DEBUG] Found index.html at: {index_path}")
+        return send_from_directory(str(frontend_dist), 'index.html')
     else:
-        # Fallback to API response if frontend not built
+        # More detailed error response
+        print(f"[DEBUG] Frontend not found at: {frontend_dist}")
         return jsonify({
             "message": "Enhanced OMR Scanner API - Backend is running",
             "status": "Frontend not found. Please ensure frontend is built in frontend/dist.",
-            "api_docs": "/api/health for API status"
+            "api_docs": "/api/health for API status",
+            "debug_info": {
+                "backend_dir": str(backend_dir),
+                "project_root": str(project_root),
+                "frontend_dist": str(frontend_dist),
+                "exists": frontend_dist.exists(),
+                "contents": list(frontend_dist.iterdir()) if frontend_dist.exists() else []
+            }
         })
 
 @app.route('/<path:path>')
 def serve_static(path):
     """Serve static files from React build"""
-    # Don't serve API routes as static files
+    # Handle API routes - return 404 and let Flask handle them
     if path.startswith('api/'):
-        # Let Flask handle API routes normally - this will fall through to API handlers
-        pass
-    else:
-        frontend_path = os.path.join(os.path.dirname(__file__), '..', 'frontend', 'dist')
-        
-        # Try to serve the requested file
-        file_path = os.path.join(frontend_path, path)
-        if os.path.exists(file_path) and os.path.isfile(file_path):
-            return send_from_directory(frontend_path, path)
-        
-        # For React Router - return index.html for client-side routing
-        index_path = os.path.join(frontend_path, 'index.html')
-        if os.path.exists(index_path):
-            return send_from_directory(frontend_path, 'index.html')
-        else:
-            return jsonify({"error": "Frontend not built"}), 404
+        # This will let the request fall through to the actual API handlers
+        return jsonify({"error": "API endpoint not found"}), 404
+    
+    # Get absolute paths
+    backend_dir = Path(__file__).parent.absolute()
+    project_root = backend_dir.parent
+    frontend_dist = project_root / 'frontend' / 'dist'
+    
+    # Check if frontend build exists
+    if not frontend_dist.exists():
+        print(f"[DEBUG] Frontend dist not found at: {frontend_dist}")
+        return jsonify({
+            "error": "Frontend not built",
+            "message": "Run 'cd frontend && npm install && npm run build' to build the frontend",
+            "path_requested": path,
+            "frontend_path": str(frontend_dist)
+        }), 404
+    
+    # Try to serve the specific file
+    file_path = frontend_dist / path
+    
+    # If it's a file and exists, serve it
+    if file_path.exists() and file_path.is_file():
+        print(f"[DEBUG] Serving file: {file_path}")
+        return send_from_directory(str(frontend_dist), path)
+    
+    # For client-side routing (React Router), serve index.html
+    index_path = frontend_dist / 'index.html'
+    if index_path.exists():
+        print(f"[DEBUG] Serving index.html for route: {path}")
+        return send_from_directory(str(frontend_dist), 'index.html')
+    
+    # If nothing found, return 404
+    return jsonify({
+        "error": "File not found",
+        "path": path,
+        "frontend_dist": str(frontend_dist)
+    }), 404
 
 # Database setup for persistent storage
 def init_database():
@@ -998,14 +1033,25 @@ def allowed_file(filename):
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
+    # Get path info for debugging
+    backend_dir = Path(__file__).parent.absolute()
+    project_root = backend_dir.parent
+    frontend_dist = project_root / 'frontend' / 'dist'
+    
     return jsonify({
         "status": "success",
-        "message": "Enhanced OMR Scanner API with Database Export Fixed",
-        "version": "8.0.0-DATABASE-EXPORT-FIXED",
+        "message": "Enhanced OMR Scanner API with Fixed Frontend Serving",
+        "version": "8.1.0-FRONTEND-FIXED",
         "timestamp": datetime.now().isoformat(),
         "directories": {
             "uploads": os.path.exists(UPLOAD_FOLDER),
-            "results": os.path.exists(RESULTS_FOLDER)
+            "results": os.path.exists(RESULTS_FOLDER),
+            "frontend": frontend_dist.exists()
+        },
+        "paths": {
+            "backend": str(backend_dir),
+            "project_root": str(project_root),
+            "frontend_dist": str(frontend_dist)
         },
         "detection_settings": {
             "bubble_threshold": BUBBLE_THRESHOLD,
@@ -1925,6 +1971,11 @@ def get_system_status():
         total_answer_keys = cursor.fetchone()[0]
         conn.close()
         
+        # Get path information
+        backend_dir = Path(__file__).parent.absolute()
+        project_root = backend_dir.parent
+        frontend_dist = project_root / 'frontend' / 'dist'
+        
         return jsonify({
             "system_status": "ready",
             "database_connected": True,
@@ -1935,16 +1986,20 @@ def get_system_status():
             "upload_folder_exists": os.path.exists(UPLOAD_FOLDER),
             "results_folder_exists": os.path.exists(RESULTS_FOLDER),
             "database_file_exists": os.path.exists(DATABASE_FILE),
+            "frontend_exists": frontend_dist.exists(),
+            "frontend_path": str(frontend_dist),
             "server_time": datetime.now().isoformat(),
-            "version": "8.0.0-DATABASE-EXPORT-FIXED",
+            "version": "8.1.0-FRONTEND-FIXED",
             "detection_settings": {
                 "bubble_threshold": BUBBLE_THRESHOLD,
                 "dynamic_threshold": DYNAMIC_THRESHOLD,
                 "relative_threshold": RELATIVE_THRESHOLD
             },
             "features": [
-                "FIXED: Database export functionality working",
-                "FIXED: Multiple bubble detection working correctly",
+                "FIXED: Frontend serving with proper path resolution",
+                "FIXED: API route handling corrected",
+                "Database export functionality working",
+                "Multiple bubble detection working correctly",
                 "Database viewer with filtering and sorting",
                 "Bulk delete and individual delete options",
                 "CSV and Excel export for entire database",
@@ -1957,7 +2012,11 @@ def get_system_status():
 # Error handlers
 @app.errorhandler(404)
 def not_found(error):
-    return jsonify({"error": "Endpoint not found"}), 404
+    # Check if this is an API request
+    if request.path.startswith('/api/'):
+        return jsonify({"error": "API endpoint not found"}), 404
+    # For non-API routes, try serving the React app
+    return serve_frontend()
 
 @app.errorhandler(500)
 def internal_error(error):
@@ -1968,10 +2027,11 @@ def request_entity_too_large(error):
     return jsonify({"error": "File too large. Maximum size is 16MB"}), 413
 
 if __name__ == '__main__':
-    print("Starting Enhanced OMR Scanner API v8.0.0")
+    print("Starting Enhanced OMR Scanner API v8.1.0")
     print("=" * 80)
     print("Features:")
-    print("   ✅ Frontend serving routes added")
+    print("   ✅ Frontend serving with fixed path resolution")
+    print("   ✅ Proper API route handling")
     print("   ✅ Database export functionality")
     print("   ✅ Multiple bubble detection")
     print("   ✅ Delete functionality")
@@ -1979,12 +2039,25 @@ if __name__ == '__main__':
     print("")
     print("Available endpoints:")
     print("- GET  / (serves React frontend)")
-    print("- GET  /api/health (API health check)")
+    print("- GET  /api/health (API health check with debug info)")
     print("- GET  /api/database/stats (database statistics)")
     print("- GET  /api/database/export/csv (export all to CSV)")
     print("- GET  /api/database/export/excel (export all to Excel)")
     print("")
-    print(f"Server starting on http://localhost:5000")
+    
+    # Get path info for debugging
+    backend_dir = Path(__file__).parent.absolute()
+    project_root = backend_dir.parent
+    frontend_dist = project_root / 'frontend' / 'dist'
+    
+    print(f"Backend directory: {backend_dir}")
+    print(f"Project root: {project_root}")
+    print(f"Frontend dist path: {frontend_dist}")
+    print(f"Frontend dist exists: {frontend_dist.exists()}")
+    
+    if frontend_dist.exists():
+        print(f"Frontend dist contents: {list(frontend_dist.iterdir())}")
+    
     print("=" * 80)
     
     for folder in [UPLOAD_FOLDER, RESULTS_FOLDER]:
@@ -1993,7 +2066,9 @@ if __name__ == '__main__':
             print(f"Created directory: {folder}")
     
     # Use PORT from environment variable (Render provides this)
-    port = int(os.environ.get('PORT', 5000))
+    port = int(os.environ.get('PORT', 10000))
+    
+    print(f"Server starting on http://localhost:{port}")
     
     # Set debug=False for production
     app.run(debug=False, host='0.0.0.0', port=port)
