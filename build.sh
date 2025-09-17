@@ -1,21 +1,20 @@
 #!/usr/bin/env bash
-set -e
+# Build script for Render
 
-echo "Installing frontend dependencies..."
+# Install frontend dependencies and build
 cd frontend
-npm ci
-
-echo "Building frontend..."
-npx vite build  # Use npx to ensure vite is executed properly
-
-echo "Moving back to root..."
+npm install
+npm run build
 cd ..
 
-echo "Installing Python dependencies..."
+# Install Python dependencies
 pip install -r backend/requirements.txt
 
-echo "Creating required directories..."
+# Create necessary directories
 mkdir -p backend/uploads
 mkdir -p backend/results
 
-echo "Build complete!"
+# Initialize database
+cd backend
+python -c "from app import init_database; init_database()"
+cd ..
