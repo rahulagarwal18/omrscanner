@@ -2,5 +2,20 @@ services:
   - type: web
     name: omr-scanner
     env: python
-    buildCommand: "chmod +x build.sh && ./build.sh"
+    buildCommand: |
+      # Install Node.js and npm first
+      curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      apt-get install -y nodejs
+      
+      # Build frontend
+      cd frontend && npm install && npm run build && cd ..
+      
+      # Install Python dependencies
+      pip install -r backend/requirements.txt
+      
+      # Create directories
+      mkdir -p backend/uploads backend/results
     startCommand: "cd backend && python app.py"
+    envVars:
+      - key: PORT
+        value: 10000
