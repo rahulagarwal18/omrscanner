@@ -22,7 +22,9 @@ import {
   X,
   AlertTriangle,
   Database,
-  Filter
+  Filter,
+  Smartphone,
+  Monitor
 } from "lucide-react";
 
 // Simple Card components with better spacing
@@ -43,6 +45,9 @@ export default function App() {
   const fileInputRef = useRef(null);
   const multipleFileInputRef = useRef(null);
   const answerKeyRef = useRef(null);
+  const mobileCameraRef = useRef(null);
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
   
   // States with proper initialization
   const [omrFile, setOmrFile] = useState(null);
@@ -78,10 +83,32 @@ export default function App() {
   const [sortBy, setSortBy] = useState("timestamp");
   const [sortOrder, setSortOrder] = useState("desc");
 
+  // MOBILE CAMERA STATES
+  const [isMobile, setIsMobile] = useState(false);
+  const [showMobileCamera, setShowMobileCamera] = useState(false);
+  const [cameraStream, setCameraStream] = useState(null);
+  const [capturedImage, setCapturedImage] = useState(null);
+  const [cameraMode, setCameraMode] = useState("environment"); // "environment" or "user"
+  const [scanType, setScanType] = useState(null); // "omr" or "answerKey"
+
   // UPDATED FOR RENDER: Dynamic API URL based on environment
   const API_BASE_URL = window.location.hostname === 'localhost' 
     ? "http://localhost:5000/api"
     : "/api";  // For production on Render
+
+  // Detect mobile device
+  useEffect(() => {
+    const checkMobile = () => {
+      const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+      const mobileRegex = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i;
+      const touchDevice = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+      setIsMobile(mobileRegex.test(userAgent) || touchDevice);
+    };
+    
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
 
   // Notification system
   const showNotification = (message, type = "info") => {
@@ -89,8 +116,10 @@ export default function App() {
     setTimeout(() => setNotification(null), 5000);
   };
 
-  // Custom cursor effect
+  // Custom cursor effect (disable on mobile)
   useEffect(() => {
+    if (isMobile) return;
+    
     const cursor = cursorRef.current;
     if (!cursor) return;
     
@@ -100,7 +129,175 @@ export default function App() {
     };
     window.addEventListener("mousemove", moveCursor);
     return () => window.removeEventListener("mousemove", moveCursor);
-  }, []);
+  }, [isMobile]);
+
+  // Mobile Camera Functions
+  const startMobileCamera = async (mode = "environment") => {
+    try {
+      // Stop any existing stream first
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+      }
+
+      const constraints = {
+        video: {
+          facingMode: mode,
+          width: { ideal: 1920 },
+          height: { ideal: 1080 }
+        }
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      setCameraStream(stream);
+      
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
+      
+      setShowMobileCamera(true);
+      setCameraMode(mode);
+    } catch (err) {
+      console.error("Camera error:", err);
+      showNotification("Failed to access camera. Please grant camera permissions.", "error");
+    }
+  };
+
+  const stopMobileCamera = () => {
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(track => track.stop());
+      setCameraStream(null);
+    }
+    setShowMobileCamera(false);
+    setCapturedImage(null);
+    setScanType(null);
+  };
+
+  const switchCamera = () => {
+    const newMode = cameraMode === "environment" ? "user" : "environment";
+    startMobileCamera(newMode);
+  };
+
+  const captureImage = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      const context = canvas.getContext('2d');
+      
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      context.drawImage(video, 0, 0);
+      
+      const imageData = canvas.toDataURL('image/jpeg');
+      setCapturedImage(imageData);
+      
+      // Stop camera after capture
+      if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        setCameraStream(null);
+      }
+      
+      return imageData;
+    }
+    return null;
+  };
+
+  const retakePhoto = () => {
+    setCapturedImage(null);
+    startMobileCamera(cameraMode);
+  };
+
+  const processCapturedImage = async () => {
+    if (!capturedImage) return;
+    
+    setLoading(true);
+    
+    try {
+      if (scanType === 'answerKey') {
+        // Scan answer key
+        const response = await fetch(`${API_BASE_URL}/scan-answer-key`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ image: capturedImage })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setAnswerKey(data.answer_key);
+          setAnswerKeyLoaded(true);
+          showNotification(data.message, "success");
+          stopMobileCamera();
+        } else {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to scan answer key');
+        }
+      } else if (scanType === 'omr') {
+        // Scan OMR sheet
+        if (!answerKeyLoaded) {
+          showNotification("Please load or scan an answer key first!", "error");
+          setLoading(false);
+          return;
+        }
+        
+        const response = await fetch(`${API_BASE_URL}/scan-single`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            image: capturedImage,
+            student_name: studentName || "Unknown Student",
+            reg_no: regNo || "N/A",
+            class: studentClass || "N/A"
+          })
+        });
+        
+        if (response.ok) {
+          const data = await response.json();
+          setCurrentResult(data);
+          await fetchAllResults();
+          
+          if (data.multiple_answers && data.multiple_answers > 0) {
+            showNotification(`⚠️ Detected ${data.multiple_answers} questions with multiple bubbles marked!`, "warning");
+          } else {
+            showNotification("OMR sheet scanned successfully!", "success");
+          }
+          stopMobileCamera();
+        } else {
+          const errorData = await response.json();
+          throw new Error(errorData.error || 'Failed to scan OMR');
+        }
+      }
+    } catch (err) {
+      console.error("Mobile scan error:", err);
+      showNotification(err.message, "error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle mobile camera scan for OMR
+  const handleMobileCameraScan = () => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    
+    setScanType('omr');
+    startMobileCamera();
+  };
+
+  // Handle mobile camera scan for Answer Key
+  const handleMobileAnswerKeyScan = () => {
+    if (!serverAwake) {
+      showNotification("Server is still waking up. Please wait...", "info");
+      return;
+    }
+    
+    setScanType('answerKey');
+    startMobileCamera();
+  };
 
   // ADDED FOR RENDER: Check if backend server is awake
   useEffect(() => {
@@ -781,6 +978,94 @@ export default function App() {
         accept=".json,.csv"
         style={{ display: "none" }}
       />
+      <input
+        type="file"
+        ref={mobileCameraRef}
+        accept="image/*"
+        capture="environment"
+        style={{ display: "none" }}
+      />
+
+      {/* Mobile Camera Modal */}
+      {showMobileCamera && (
+        <div className="fixed inset-0 bg-black/95 z-50 flex flex-col">
+          <div className="flex justify-between items-center p-4 bg-black/50">
+            <h3 className="text-lg font-bold">
+              {scanType === 'answerKey' ? 'Scan Answer Key' : 'Scan OMR Sheet'}
+            </h3>
+            <button
+              onClick={stopMobileCamera}
+              className="text-white hover:text-gray-300"
+            >
+              <X size={24} />
+            </button>
+          </div>
+          
+          <div className="flex-1 relative">
+            {!capturedImage ? (
+              <>
+                <video
+                  ref={videoRef}
+                  autoPlay
+                  playsInline
+                  className="w-full h-full object-contain"
+                />
+                <canvas
+                  ref={canvasRef}
+                  style={{ display: 'none' }}
+                />
+              </>
+            ) : (
+              <img
+                src={capturedImage}
+                alt="Captured"
+                className="w-full h-full object-contain"
+              />
+            )}
+          </div>
+          
+          <div className="p-4 bg-black/50">
+            {!capturedImage ? (
+              <div className="flex justify-around">
+                <button
+                  onClick={switchCamera}
+                  className="bg-gray-500/20 hover:bg-gray-500/30 text-white px-6 py-3 rounded-lg"
+                >
+                  <RefreshCw size={20} />
+                </button>
+                <button
+                  onClick={captureImage}
+                  className="bg-purple-500 hover:bg-purple-600 text-white px-12 py-3 rounded-lg font-bold"
+                >
+                  Capture
+                </button>
+                <button
+                  onClick={stopMobileCamera}
+                  className="bg-red-500/20 hover:bg-red-500/30 text-white px-6 py-3 rounded-lg"
+                >
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <div className="flex justify-around">
+                <button
+                  onClick={retakePhoto}
+                  className="bg-gray-500/20 hover:bg-gray-500/30 text-white px-6 py-3 rounded-lg"
+                >
+                  Retake
+                </button>
+                <button
+                  onClick={processCapturedImage}
+                  className="bg-green-500 hover:bg-green-600 text-white px-12 py-3 rounded-lg font-bold"
+                  disabled={loading}
+                >
+                  {loading ? 'Processing...' : 'Process'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ADDED: Server Status Banner for Production */}
       {window.location.hostname !== 'localhost' && !serverAwake && (
@@ -843,11 +1128,13 @@ export default function App() {
         transition={{ repeat: Infinity, duration: 8 }}
       />
 
-      {/* Custom Cursor */}
-      <div
-        ref={cursorRef}
-        className="fixed w-8 h-8 rounded-full bg-purple-400/50 border border-purple-300/70 pointer-events-none transform -translate-x-1/2 -translate-y-1/2 blur-sm shadow-xl z-40"
-      ></div>
+      {/* Custom Cursor - Hidden on mobile */}
+      {!isMobile && (
+        <div
+          ref={cursorRef}
+          className="fixed w-8 h-8 rounded-full bg-purple-400/50 border border-purple-300/70 pointer-events-none transform -translate-x-1/2 -translate-y-1/2 blur-sm shadow-xl z-40"
+        ></div>
+      )}
 
       {/* Loading Overlay */}
       {(loading || exportLoading || (serverChecking && !serverAwake)) && (
@@ -878,10 +1165,23 @@ export default function App() {
             Enhanced OMR Scanner
           </h1>
           <div className="text-sm text-gray-400 mb-4">
-            v7.0 - Multiple Bubble Detection Fixed
+            v8.0 - Mobile Camera Support Added
             {window.location.hostname !== 'localhost' && (
               <span className="ml-2 text-yellow-400">(Running on Free Hosting)</span>
             )}
+          </div>
+          
+          {/* Device Indicator */}
+          <div className="flex justify-center mb-4">
+            <div className={`px-4 py-2 rounded-full text-sm font-medium ${
+              isMobile ? 'bg-blue-500/20 text-blue-300 border border-blue-500/30' : 
+                        'bg-gray-500/20 text-gray-300 border border-gray-500/30'
+            }`}>
+              <div className="flex items-center space-x-2">
+                {isMobile ? <Smartphone size={16} /> : <Monitor size={16} />}
+                <span>{isMobile ? 'Mobile Device Detected' : 'Desktop Mode'}</span>
+              </div>
+            </div>
           </div>
           
           {/* Status Indicators */}
@@ -1084,20 +1384,24 @@ export default function App() {
               </Card>
             </motion.div>
 
-            {/* Camera Scan */}
+            {/* Camera Scan - Shows mobile option if on mobile */}
             <motion.div
               whileHover={{ scale: serverAwake ? 1.05 : 1, y: serverAwake ? -5 : 0 }}
               whileTap={{ scale: serverAwake ? 0.95 : 1 }}
-              onClick={handleCameraScan}
+              onClick={isMobile ? handleMobileCameraScan : handleCameraScan}
               className={`cursor-pointer ${!serverAwake ? 'cursor-not-allowed' : ''}`}
             >
               <Card className="h-full hover:bg-white/15 transition-all duration-300">
                 <CardContent className="text-center">
                   <div className="flex justify-center mb-4 text-blue-400">
-                    <Camera size={32} />
+                    {isMobile ? <Smartphone size={32} /> : <Camera size={32} />}
                   </div>
-                  <h3 className="text-lg font-bold mb-2">Live Camera</h3>
-                  <p className="text-sm text-gray-300">Instant scanning</p>
+                  <h3 className="text-lg font-bold mb-2">
+                    {isMobile ? 'Phone Camera' : 'IP Camera'}
+                  </h3>
+                  <p className="text-sm text-gray-300">
+                    {isMobile ? 'Use built-in camera' : 'Network camera scan'}
+                  </p>
                 </CardContent>
               </Card>
             </motion.div>
@@ -1140,20 +1444,22 @@ export default function App() {
               </Card>
             </motion.div>
 
-            {/* Scan Answer Key */}
+            {/* Scan Answer Key - Shows mobile option if on mobile */}
             <motion.div
               whileHover={{ scale: serverAwake ? 1.05 : 1, y: serverAwake ? -5 : 0 }}
               whileTap={{ scale: serverAwake ? 0.95 : 1 }}
-              onClick={handleScanAnswerKeyFromCamera}
+              onClick={isMobile ? handleMobileAnswerKeyScan : handleScanAnswerKeyFromCamera}
               className={`cursor-pointer ${!serverAwake ? 'cursor-not-allowed' : ''}`}
             >
               <Card className="h-full hover:bg-white/15 transition-all duration-300">
                 <CardContent className="text-center">
                   <div className="flex justify-center mb-4 text-yellow-400">
-                    <ScanLine size={32} />
+                    {isMobile ? <Smartphone size={32} /> : <ScanLine size={32} />}
                   </div>
                   <h3 className="text-lg font-bold mb-2">Scan Key</h3>
-                  <p className="text-sm text-gray-300">From camera</p>
+                  <p className="text-sm text-gray-300">
+                    {isMobile ? 'Phone camera' : 'From camera'}
+                  </p>
                 </CardContent>
               </Card>
             </motion.div>
@@ -1452,30 +1758,30 @@ export default function App() {
                         )}
                       </div>
 
-                     {/* Export Actions */}
-<div className="flex flex-wrap gap-4 mt-6 justify-center">
-  <button
-    onClick={handleExportAllToCSV}
-    className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
-  >
-    <Download size={20} />
-    <span>Export All to CSV</span>
-  </button>
-  <button
-    onClick={handleExportAllToExcel}
-    className="bg-green-500/20 hover:bg-green-500/30 text-green-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
-  >
-    <FileSpreadsheet size={20} />
-    <span>Export All to Excel</span>
-  </button>
-  <button
-    onClick={() => window.print()}
-    className="bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
-  >
-    <FileText size={20} />
-    <span>Print Report</span>
-  </button>
-</div>
+                      {/* Export Actions */}
+                      <div className="flex flex-wrap gap-4 mt-6 justify-center">
+                        <button
+                          onClick={handleExportAllToCSV}
+                          className="bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
+                        >
+                          <Download size={20} />
+                          <span>Export All to CSV</span>
+                        </button>
+                        <button
+                          onClick={handleExportAllToExcel}
+                          className="bg-green-500/20 hover:bg-green-500/30 text-green-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
+                        >
+                          <FileSpreadsheet size={20} />
+                          <span>Export All to Excel</span>
+                        </button>
+                        <button
+                          onClick={() => window.print()}
+                          className="bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 px-6 py-3 rounded-lg transition-colors flex items-center space-x-2"
+                        >
+                          <FileText size={20} />
+                          <span>Print Report</span>
+                        </button>
+                      </div>
                     </>
                   );
                 })()}
@@ -1858,7 +2164,7 @@ export default function App() {
 
         {/* Footer */}
         <div className="text-center text-gray-400 text-sm mt-12">
-          <p className="mb-2">Enhanced OMR Scanner v7.0 - Multiple Bubble Detection Fixed</p>
+          <p className="mb-2">Enhanced OMR Scanner v8.0 - Mobile Camera Support</p>
           <p className="flex items-center justify-center space-x-2">
             {serverAwake ? (
               answerKeyLoaded ? (
@@ -1870,6 +2176,11 @@ export default function App() {
               <><AlertCircle size={16} className="text-yellow-400" /><span>Connecting to server...</span></>
             )}
           </p>
+          {isMobile && (
+            <p className="mt-2 text-xs text-blue-300">
+              📱 Mobile device detected - Camera scanning enabled
+            </p>
+          )}
           {window.location.hostname !== 'localhost' && (
             <p className="mt-2 text-xs text-gray-500">
               Hosted on free tier - Server may take 30-50 seconds to wake up after inactivity
