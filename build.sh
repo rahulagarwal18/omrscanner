@@ -1,20 +1,21 @@
 #!/usr/bin/env bash
-# Build script for Render
+set -e
 
-# Install frontend dependencies and build
+echo "Installing frontend dependencies..."
 cd frontend
 npm install
+
+echo "Building frontend..."
 npm run build
+
+echo "Moving back to root..."
 cd ..
 
-# Install Python dependencies
+echo "Installing Python dependencies..."
 pip install -r backend/requirements.txt
 
-# Create necessary directories
+echo "Creating required directories..."
 mkdir -p backend/uploads
 mkdir -p backend/results
 
-# Initialize database
-cd backend
-python -c "from app import init_database; init_database()"
-cd ..
+echo "Build complete!"

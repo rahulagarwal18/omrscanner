@@ -2,10 +2,5 @@ services:
   - type: web
     name: omr-scanner
     env: python
-    buildCommand: |
-      cd frontend && npm install && npm run build
-      cd ../backend && pip install -r requirements.txt
-    startCommand: cd backend && python app.py
-    envVars:
-      - key: PORT
-        value: 10000
+    buildCommand: "chmod +x build.sh && ./build.sh"
+    startCommand: "cd backend && python app.py"
