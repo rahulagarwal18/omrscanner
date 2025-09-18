@@ -90,6 +90,7 @@ export default function App() {
   const [capturedImage, setCapturedImage] = useState(null);
   const [cameraMode, setCameraMode] = useState("environment"); // "environment" or "user"
   const [scanType, setScanType] = useState(null); // "omr" or "answerKey"
+  const [cameraError, setCameraError] = useState(null); // Track camera errors
 
   // UPDATED FOR RENDER: Dynamic API URL based on environment
   const API_BASE_URL = window.location.hostname === 'localhost' 
@@ -131,19 +132,26 @@ export default function App() {
     return () => window.removeEventListener("mousemove", moveCursor);
   }, [isMobile]);
 
-  // Mobile Camera Functions
+  // Mobile Camera Functions - ENHANCED WITH BETTER ERROR HANDLING
   const startMobileCamera = async (mode = "environment") => {
     try {
+      setCameraError(null);
+      
       // Stop any existing stream first
       if (cameraStream) {
         cameraStream.getTracks().forEach(track => track.stop());
       }
 
+      // Check if camera API is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Camera API not available. Please ensure you're using HTTPS.");
+      }
+
       const constraints = {
         video: {
           facingMode: mode,
-          width: { ideal: 1920 },
-          height: { ideal: 1080 }
+          width: { ideal: 1920, min: 640 },
+          height: { ideal: 1080, min: 480 }
         }
       };
 
@@ -152,13 +160,29 @@ export default function App() {
       
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        // Wait for video to be ready
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current.play();
+        };
       }
       
       setShowMobileCamera(true);
       setCameraMode(mode);
     } catch (err) {
       console.error("Camera error:", err);
-      showNotification("Failed to access camera. Please grant camera permissions.", "error");
+      setCameraError(err.message);
+      
+      if (err.name === 'NotAllowedError') {
+        showNotification("Camera permission denied. Please grant camera access and try again.", "error");
+      } else if (err.name === 'NotFoundError') {
+        showNotification("No camera found on this device.", "error");
+      } else if (err.name === 'NotReadableError') {
+        showNotification("Camera is already in use by another application.", "error");
+      } else {
+        showNotification(`Camera error: ${err.message}`, "error");
+      }
+      
+      stopMobileCamera();
     }
   };
 
@@ -167,9 +191,13 @@ export default function App() {
       cameraStream.getTracks().forEach(track => track.stop());
       setCameraStream(null);
     }
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+    }
     setShowMobileCamera(false);
     setCapturedImage(null);
     setScanType(null);
+    setCameraError(null);
   };
 
   const switchCamera = () => {
@@ -177,41 +205,103 @@ export default function App() {
     startMobileCamera(newMode);
   };
 
+  // ENHANCED IMAGE CAPTURE WITH VALIDATION
   const captureImage = () => {
-    if (videoRef.current && canvasRef.current) {
-      const video = videoRef.current;
-      const canvas = canvasRef.current;
-      const context = canvas.getContext('2d');
+    if (!videoRef.current || !canvasRef.current) {
+      showNotification("Camera not ready. Please try again.", "error");
+      return null;
+    }
+    
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    
+    // Check if video is playing and has valid dimensions
+    if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+      showNotification("Video stream not ready. Please wait a moment.", "warning");
+      return null;
+    }
+    
+    if (video.videoWidth === 0 || video.videoHeight === 0) {
+      showNotification("Invalid video dimensions. Please check camera.", "error");
+      return null;
+    }
+    
+    const context = canvas.getContext('2d');
+    
+    // Set canvas dimensions to match video
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    
+    // Clear canvas first
+    context.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Draw the current video frame
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    
+    // Get image data with high quality
+    let imageData;
+    try {
+      imageData = canvas.toDataURL('image/jpeg', 0.95); // 95% quality
       
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      context.drawImage(video, 0, 0);
+      // Validate that we got actual data
+      if (!imageData || imageData.length < 1000) {
+        throw new Error("Captured image data is too small");
+      }
       
-      const imageData = canvas.toDataURL('image/jpeg');
+      // Check if it's a valid data URL
+      if (!imageData.startsWith('data:image')) {
+        throw new Error("Invalid image data format");
+      }
+      
       setCapturedImage(imageData);
       
-      // Stop camera after capture
+      // Stop camera after successful capture
       if (cameraStream) {
         cameraStream.getTracks().forEach(track => track.stop());
         setCameraStream(null);
       }
       
+      console.log("Image captured successfully, size:", imageData.length);
       return imageData;
+      
+    } catch (err) {
+      console.error("Image capture error:", err);
+      showNotification("Failed to capture image. Please try again.", "error");
+      return null;
     }
-    return null;
   };
 
   const retakePhoto = () => {
     setCapturedImage(null);
+    setCameraError(null);
     startMobileCamera(cameraMode);
   };
 
+  // ENHANCED IMAGE PROCESSING WITH BETTER ERROR HANDLING
   const processCapturedImage = async () => {
-    if (!capturedImage) return;
+    if (!capturedImage) {
+      showNotification("No image to process. Please capture an image first.", "error");
+      return;
+    }
+    
+    // Validate image data before sending
+    if (capturedImage.length < 1000) {
+      showNotification("Image data is too small. Please retake the photo.", "error");
+      return;
+    }
     
     setLoading(true);
     
     try {
+      const requestBody = {
+        image: capturedImage,
+        student_name: studentName || "Unknown Student",
+        reg_no: regNo || "N/A",
+        class: studentClass || "N/A"
+      };
+      
+      console.log("Sending image to server, size:", capturedImage.length);
+      
       if (scanType === 'answerKey') {
         // Scan answer key
         const response = await fetch(`${API_BASE_URL}/scan-answer-key`, {
@@ -222,15 +312,23 @@ export default function App() {
           body: JSON.stringify({ image: capturedImage })
         });
         
+        const responseText = await response.text();
+        let data;
+        
+        try {
+          data = JSON.parse(responseText);
+        } catch (e) {
+          console.error("Response parsing error:", responseText);
+          throw new Error("Server returned invalid response");
+        }
+        
         if (response.ok) {
-          const data = await response.json();
           setAnswerKey(data.answer_key);
           setAnswerKeyLoaded(true);
-          showNotification(data.message, "success");
+          showNotification(data.message || "Answer key scanned successfully!", "success");
           stopMobileCamera();
         } else {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to scan answer key');
+          throw new Error(data.error || 'Failed to scan answer key');
         }
       } else if (scanType === 'omr') {
         // Scan OMR sheet
@@ -245,16 +343,20 @@ export default function App() {
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            image: capturedImage,
-            student_name: studentName || "Unknown Student",
-            reg_no: regNo || "N/A",
-            class: studentClass || "N/A"
-          })
+          body: JSON.stringify(requestBody)
         });
         
+        const responseText = await response.text();
+        let data;
+        
+        try {
+          data = JSON.parse(responseText);
+        } catch (e) {
+          console.error("Response parsing error:", responseText);
+          throw new Error("Server returned invalid response");
+        }
+        
         if (response.ok) {
-          const data = await response.json();
           setCurrentResult(data);
           await fetchAllResults();
           
@@ -265,13 +367,12 @@ export default function App() {
           }
           stopMobileCamera();
         } else {
-          const errorData = await response.json();
-          throw new Error(errorData.error || 'Failed to scan OMR');
+          throw new Error(data.error || 'Failed to scan OMR');
         }
       }
     } catch (err) {
       console.error("Mobile scan error:", err);
-      showNotification(err.message, "error");
+      showNotification(err.message || "Failed to process image. Please try again.", "error");
     } finally {
       setLoading(false);
     }
@@ -986,7 +1087,7 @@ export default function App() {
         style={{ display: "none" }}
       />
 
-      {/* Mobile Camera Modal */}
+      {/* Mobile Camera Modal - ENHANCED WITH ERROR DISPLAY */}
       {showMobileCamera && (
         <div className="fixed inset-0 bg-black/95 z-50 flex flex-col">
           <div className="flex justify-between items-center p-4 bg-black/50">
@@ -1001,6 +1102,13 @@ export default function App() {
             </button>
           </div>
           
+          {/* Camera Error Display */}
+          {cameraError && (
+            <div className="bg-red-500/20 border border-red-500/50 p-4 m-4 rounded-lg">
+              <p className="text-red-300 text-sm">{cameraError}</p>
+            </div>
+          )}
+          
           <div className="flex-1 relative">
             {!capturedImage ? (
               <>
@@ -1008,19 +1116,42 @@ export default function App() {
                   ref={videoRef}
                   autoPlay
                   playsInline
+                  muted
                   className="w-full h-full object-contain"
                 />
                 <canvas
                   ref={canvasRef}
                   style={{ display: 'none' }}
                 />
+                {/* Camera guide overlay */}
+                <div className="absolute inset-0 pointer-events-none">
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="border-2 border-white/30 rounded-lg w-3/4 h-3/4 max-w-md max-h-96">
+                      <div className="absolute top-2 left-2 w-8 h-8 border-t-2 border-l-2 border-white"></div>
+                      <div className="absolute top-2 right-2 w-8 h-8 border-t-2 border-r-2 border-white"></div>
+                      <div className="absolute bottom-2 left-2 w-8 h-8 border-b-2 border-l-2 border-white"></div>
+                      <div className="absolute bottom-2 right-2 w-8 h-8 border-b-2 border-r-2 border-white"></div>
+                    </div>
+                  </div>
+                  <p className="absolute bottom-20 left-0 right-0 text-center text-white text-sm px-4">
+                    Position the OMR sheet within the frame
+                  </p>
+                </div>
               </>
             ) : (
-              <img
-                src={capturedImage}
-                alt="Captured"
-                className="w-full h-full object-contain"
-              />
+              <div className="relative w-full h-full">
+                <img
+                  src={capturedImage}
+                  alt="Captured"
+                  className="w-full h-full object-contain"
+                />
+                {/* Image info overlay */}
+                <div className="absolute top-4 left-4 bg-black/50 p-2 rounded">
+                  <p className="text-xs text-white">
+                    Image captured • {(capturedImage.length / 1024).toFixed(0)} KB
+                  </p>
+                </div>
+              </div>
             )}
           </div>
           
@@ -1029,15 +1160,19 @@ export default function App() {
               <div className="flex justify-around">
                 <button
                   onClick={switchCamera}
-                  className="bg-gray-500/20 hover:bg-gray-500/30 text-white px-6 py-3 rounded-lg"
+                  className="bg-gray-500/20 hover:bg-gray-500/30 text-white px-6 py-3 rounded-lg flex items-center space-x-2"
+                  disabled={!cameraStream}
                 >
                   <RefreshCw size={20} />
+                  <span className="hidden sm:inline">Switch</span>
                 </button>
                 <button
                   onClick={captureImage}
-                  className="bg-purple-500 hover:bg-purple-600 text-white px-12 py-3 rounded-lg font-bold"
+                  className="bg-purple-500 hover:bg-purple-600 text-white px-12 py-3 rounded-lg font-bold flex items-center space-x-2"
+                  disabled={!cameraStream}
                 >
-                  Capture
+                  <Camera size={20} />
+                  <span>Capture</span>
                 </button>
                 <button
                   onClick={stopMobileCamera}
@@ -1050,16 +1185,27 @@ export default function App() {
               <div className="flex justify-around">
                 <button
                   onClick={retakePhoto}
-                  className="bg-gray-500/20 hover:bg-gray-500/30 text-white px-6 py-3 rounded-lg"
+                  className="bg-gray-500/20 hover:bg-gray-500/30 text-white px-6 py-3 rounded-lg flex items-center space-x-2"
                 >
-                  Retake
+                  <RefreshCw size={20} />
+                  <span>Retake</span>
                 </button>
                 <button
                   onClick={processCapturedImage}
-                  className="bg-green-500 hover:bg-green-600 text-white px-12 py-3 rounded-lg font-bold"
+                  className="bg-green-500 hover:bg-green-600 text-white px-12 py-3 rounded-lg font-bold flex items-center space-x-2"
                   disabled={loading}
                 >
-                  {loading ? 'Processing...' : 'Process'}
+                  {loading ? (
+                    <>
+                      <RefreshCw className="animate-spin" size={20} />
+                      <span>Processing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle size={20} />
+                      <span>Process</span>
+                    </>
+                  )}
                 </button>
               </div>
             )}
@@ -1153,6 +1299,7 @@ export default function App() {
         </div>
       )}
 
+      {/* Rest of your UI remains the same... */}
       <div className="container mx-auto px-4 py-8">
         {/* Header */}
         <motion.div
@@ -1165,7 +1312,7 @@ export default function App() {
             Enhanced OMR Scanner
           </h1>
           <div className="text-sm text-gray-400 mb-4">
-            v8.0 - Mobile Camera Support Added
+            v8.1 - Mobile Camera Fixed
             {window.location.hostname !== 'localhost' && (
               <span className="ml-2 text-yellow-400">(Running on Free Hosting)</span>
             )}
